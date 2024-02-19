@@ -1,0 +1,14 @@
+telethon
+pillow
+cryptg
+hachoir
+pysocks
+rarfile
+py7zr
+moviepy
+aiohttp
+aiofiles
+multivolumefile
+asyncio
+thumb-gen
+python-dotenv

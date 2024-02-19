@@ -266,7 +266,7 @@ def make_pages(buttons, prefix, curr_page='1', page_size=6):
     prev_nxt = []
     if 1 < curr_page:
         prev_nxt.append(Button.inline('⏪ prev', data='{}{}'.format(prefix, curr_page-1)))
-    if curr_page < len(pages)-1:
+    if curr_page < len(pages):
         prev_nxt.append(Button.inline('next ⏩', data='{}{}'.format(prefix, curr_page+1)))
     if len(prev_nxt)!=0:
         keyboard.append(prev_nxt)

@@ -154,7 +154,10 @@ async def get_url(session, url, event, resumable, custom_filename):
         return file_name
     await event.edit("Error\nSomething went wrong ..")
 async def dl_file(url, event, resumable=True, custom_filename=None):
-    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+    async with aiohttp.ClientSession(
+        connector=aiohttp.TCPConnector(ssl=False),
+        timeout=aiohttp.ClientTimeout(total=60*20)
+    ) as session:
         return await get_url(session, url, event, resumable, custom_filename)
 def is_video(file_path, use_hachoir=True):
     if not use_hachoir:

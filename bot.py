@@ -365,9 +365,9 @@ async def check_links(event):
         msg = await event.respond('wait...')
         for url in urls:
             await dl_file(url.replace('_'*5, ''), msg, not (event.message.text.startswith('.d') or '_'*5 in url))
-        raise events.StopPropagation
     except Exception as e:
         await event.respond(f"Error: {e}")
+    raise events.StopPropagation
 @bot.on(events.NewMessage(pattern='/ex'))
 async def extract_files(event):
     files = dirfiles(BASE_DIR)

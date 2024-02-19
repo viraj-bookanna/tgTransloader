@@ -19,6 +19,7 @@ API_ID = int(os.getenv('API_ID'))
 API_HASH = os.getenv('API_HASH')
 STRING_SESSION = os.getenv('STRING_SESSION')
 BASE_DIR = os.getenv('BASE_DIR')
+DOWNLOAD_TIMEOUT_MINUTES = int(os.getenv('DOWNLOAD_TIMEOUT_MINUTES', '30'))
 
 bot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 
@@ -156,7 +157,7 @@ async def get_url(session, url, event, resumable, custom_filename):
 async def dl_file(url, event, resumable=True, custom_filename=None):
     async with aiohttp.ClientSession(
         connector=aiohttp.TCPConnector(ssl=False),
-        timeout=aiohttp.ClientTimeout(total=60*20)
+        timeout=aiohttp.ClientTimeout(total=60*DOWNLOAD_TIMEOUT_MINUTES)
     ) as session:
         return await get_url(session, url, event, resumable, custom_filename)
 def is_video(file_path, use_hachoir=True):

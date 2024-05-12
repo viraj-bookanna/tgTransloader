@@ -109,7 +109,8 @@ async def get_url(session, url, event, resumable, custom_filename):
     current = 0
     last = 0
     last_edited_time = 0
-    file_org_name = os.path.basename(urllib.parse.urlparse(url).path)
+    parsed_url = urllib.parse.urlparse(url)
+    file_org_name = os.path.basename(parsed_url.path)
     file_name = ""
     headers = {
         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -121,7 +122,8 @@ async def get_url(session, url, event, resumable, custom_filename):
         'sec-fetch-mode': 'navigate',
         'sec-fetch-site': 'none',
         'sec-fetch-user': '?1',
-        'upgrade-insecure-requests': '1'
+        'upgrade-insecure-requests': '1',
+        'referer': f'{parsed_url.scheme}://{parsed_url.netloc}/',
     }
     if resumable:
         info = await session.head(url, headers=headers)
@@ -178,28 +180,29 @@ async def remote_convert(event, filepath):
     file_input = driver.find_element(By.CSS_SELECTOR, '#upload_button > input[type=file]')
     file_input.send_keys(filepath)
     while driver.execute_script('return Array.from(document.querySelector("#converter > a").classList).join(" ").indexOf("unpressable")!=-1;'):
-        percentage = driver.execute_script('return (document.querySelector("#upload_progress_bar > div.bg_1 > div").clientWidth/document.querySelector("#upload_progress_bar > div.bg_1 > div").parentElement.clientWidth*100).toFixed(2)')
+        percentage = float(driver.execute_script('return (document.querySelector("#upload_progress_bar > div.bg_1 > div").clientWidth/document.querySelector("#upload_progress_bar > div.bg_1 > div").parentElement.clientWidth*100).toFixed(2);'))
         if last+2 < percentage and last_edited_time+5 < time.time():
             await event.edit("**Uploading to server**: {}\n**FileName**: {}\n**ElapsedTime**: {}".format(
                 progress_bar(percentage), filepath, seconds_to_human_time(time.time()-start_time))
             )
             last = percentage
             last_edited_time = time.time()
-        asyncio.sleep(0.1)
-    driver.execute_script('document.querySelector("#converter > a > div > div").click()')
-    asyncio.sleep(1)
+        await asyncio.sleep(0.1)
+    driver.execute_script('document.querySelector("#converter > a").click();')
+    await asyncio.sleep(1)
     last = 0
     while driver.execute_script('return function(){var e=document.querySelector("#convert_progress_bar > div.bg_1 > div").getBoundingClientRect();return e.top>=0&&e.left>=0&&e.bottom<=(window.innerHeight||document.documentElement.clientHeight)&&e.right<=(window.innerWidth||document.documentElement.clientWidth)}();'):
-        percentage = driver.execute_script('return (document.querySelector("#convert_progress_bar > div.bg_1 > div").clientWidth/document.querySelector("#convert_progress_bar > div.bg_1 > div").parentElement.clientWidth*100).toFixed(2)')
+        percentage = float(driver.execute_script('return (document.querySelector("#convert_progress_bar > div.bg_1 > div").clientWidth/document.querySelector("#convert_progress_bar > div.bg_1 > div").parentElement.clientWidth*100).toFixed(2);'))
         if last+2 < percentage and last_edited_time+5 < time.time():
             await event.edit("**Converting**: {}\n**FileName**: {}\n**ElapsedTime**: {}".format(
                 progress_bar(percentage), filepath, seconds_to_human_time(time.time()-start_time))
             )
             last = percentage
             last_edited_time = time.time()
-        asyncio.sleep(0.1)
-    asyncio.sleep(1)
+        await asyncio.sleep(0.1)
+    await asyncio.sleep(2)
     link = driver.execute_script('return document.querySelector("#download_file_link").href;')
+    driver.save_screenshot(os.path.join(BASE_DIR, 'ss.png'))
     driver.quit()
     return link
 def is_video(file_path, use_hachoir=True):
@@ -331,9 +334,9 @@ async def mainPage(scanPath, event, page=1, edit=True, page_size=6):
         text = '{} {}'.format(get_icon(fpath), btntext(db_get(files[file], files[file])))
         buttons.append(goto('dir' if os.path.isdir(fpath) else 'file', files[file], text))
     keyboard = make_pages(buttons, 'gotopage:', page)
-    keyboard.append([Button.inline('🚫 Delete all 🚫', data='deleteall:deleteall')])
     keyboard.append([Button.inline('📤 Upload all files 📤', data='uploadall:uploadall')])
     keyboard.append([Button.inline('📤 Upload all files (subdirs) 📤', data='uploadallsubdirs:uploadallsubdirs')])
+    keyboard.append([Button.inline('🚫 Delete all 🚫', data='deleteall:deleteall')])
     if edit:
         await event.edit("Select a file:", buttons=keyboard)
         return
@@ -518,7 +521,7 @@ async def callback_handler(event):
             link = await remote_convert(event, sel_dir_filepath)
             os.remove(sel_dir_filepath)
             await dl_file(link, event, False, os.path.relpath(sel_dir_filepath, BASE_DIR)+'.mp4')
-            await event.edit(f'conversion complete!\noutput file: {sel_dir_filename}.mp4')
+            await event.edit(f'conversion complete!\noutput file: {sel_dir_filepath}\nlink: {link}')
         elif data[0] in ('uploaddirfile', 'uploaddirfiledoc'):
             await event.edit('wait..')
             await upload_and_send(event, event, sel_dir_filepath, sel_dir_filepath, sel_dir_filename, data[0]=='uploaddirfiledoc')
@@ -618,6 +621,7 @@ async def callback_handler(event):
             keyboard = [
                 [Button.inline('Normal convert (slow)', data=f"filetomp4c:{data[1]}")],
                 [Button.inline('Codec copy (fast)', data=f"filetomp4copy:{data[1]}")],
+                [Button.inline('Server convert (fast)', data=f"filetomp4srv:{data[1]}")],
                 goto('file', sel_filename, '◀️ Back'),
                 main_keybtn,
             ]
@@ -627,6 +631,12 @@ async def callback_handler(event):
             await show_ffmpeg_status(sel_file_path, f'{sel_file_path}.mp4', event, data[0]=='filetomp4copy')
             os.remove(sel_file_path)
             await event.edit(f'conversion complete!\noutput file: {sel_filename}.mp4')
+        elif data[0]=='filetomp4srv':
+            await event.edit('wait..')
+            link = await remote_convert(event, sel_file_path)
+            os.remove(sel_file_path)
+            await dl_file(link, event, False, f'{sel_filename}.mp4')
+            await event.edit(f'conversion complete!\noutput file: {sel_filename}.mp4\nlink: {link}')
         elif data[0]=='extract':
             await event.edit(f'file: `{sel_filename}`\nuse following command to extract\n\n`/ex {data[1]} passwd`', buttons=[main_keybtn])
         elif data[0]=='uploadalldir':

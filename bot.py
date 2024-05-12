@@ -527,6 +527,7 @@ async def callback_handler(event):
             keyboard = [
                 [Button.inline('Normal convert (slow)', data=f"dirfiletomp4c:{data[1]}")],
                 [Button.inline('Codec copy (fast)', data=f"dirfiletomp4copy:{data[1]}")],
+                [Button.inline('Server convert (fast)', data=f"dirfiletomp4srv:{data[1]}")],
                 goto('dirfile', data[1], '◀️ Back'),
                 goto('dir', data2[0], '◀️ Back to {}'.format(db_get(data2[0]))),
                 main_keybtn

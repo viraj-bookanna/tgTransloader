@@ -9,6 +9,8 @@ from hachoir.metadata import extractMetadata
 from datetime import datetime
 from thumb_gen import Generator
 from dotenv import load_dotenv
+from selenium import webdriver
+from selenium.webdriver.common.by import By
 
 load_dotenv(override=True)
 
@@ -160,6 +162,46 @@ async def dl_file(url, event, resumable=True, custom_filename=None):
         timeout=aiohttp.ClientTimeout(total=60*DOWNLOAD_TIMEOUT_MINUTES)
     ) as session:
         return await get_url(session, url, event, resumable, custom_filename)
+async def remote_convert(event, filepath):
+    last = 0
+    last_edited_time = 0
+    start_time = time.time()
+    chrome_options = webdriver.ChromeOptions()
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--window-size=0,0')
+    chrome_options.add_argument('--disable-extensions')
+    chrome_options.add_argument('--disable-gpu')
+    driver = webdriver.Chrome(options=chrome_options)
+    driver.get('https://video-converter.com/')
+    file_input = driver.find_element(By.CSS_SELECTOR, '#upload_button > input[type=file]')
+    file_input.send_keys(filepath)
+    while driver.execute_script('return Array.from(document.querySelector("#converter > a").classList).join(" ").indexOf("unpressable")!=-1;'):
+        percentage = driver.execute_script('return (document.querySelector("#upload_progress_bar > div.bg_1 > div").clientWidth/document.querySelector("#upload_progress_bar > div.bg_1 > div").parentElement.clientWidth*100).toFixed(2)')
+        if last+2 < percentage and last_edited_time+5 < time.time():
+            await event.edit("**Uploading to server**: {}\n**FileName**: {}\n**ElapsedTime**: {}".format(
+                progress_bar(percentage), filepath, seconds_to_human_time(time.time()-start_time))
+            )
+            last = percentage
+            last_edited_time = time.time()
+        asyncio.sleep(0.1)
+    driver.execute_script('document.querySelector("#converter > a > div > div").click()')
+    asyncio.sleep(1)
+    last = 0
+    while driver.execute_script('return function(){var e=document.querySelector("#convert_progress_bar > div.bg_1 > div").getBoundingClientRect();return e.top>=0&&e.left>=0&&e.bottom<=(window.innerHeight||document.documentElement.clientHeight)&&e.right<=(window.innerWidth||document.documentElement.clientWidth)}();'):
+        percentage = driver.execute_script('return (document.querySelector("#convert_progress_bar > div.bg_1 > div").clientWidth/document.querySelector("#convert_progress_bar > div.bg_1 > div").parentElement.clientWidth*100).toFixed(2)')
+        if last+2 < percentage and last_edited_time+5 < time.time():
+            await event.edit("**Converting**: {}\n**FileName**: {}\n**ElapsedTime**: {}".format(
+                progress_bar(percentage), filepath, seconds_to_human_time(time.time()-start_time))
+            )
+            last = percentage
+            last_edited_time = time.time()
+        asyncio.sleep(0.1)
+    asyncio.sleep(1)
+    link = driver.execute_script('return document.querySelector("#download_file_link").href;')
+    driver.quit()
+    return link
 def is_video(file_path, use_hachoir=True):
     if not use_hachoir:
         mime_type, _ = mimetypes.guess_type(file_path)
@@ -291,6 +333,7 @@ async def mainPage(scanPath, event, page=1, edit=True, page_size=6):
     keyboard = make_pages(buttons, 'gotopage:', page)
     keyboard.append([Button.inline('🚫 Delete all 🚫', data='deleteall:deleteall')])
     keyboard.append([Button.inline('📤 Upload all files 📤', data='uploadall:uploadall')])
+    keyboard.append([Button.inline('📤 Upload all files (subdirs) 📤', data='uploadallsubdirs:uploadallsubdirs')])
     if edit:
         await event.edit("Select a file:", buttons=keyboard)
         return
@@ -457,7 +500,7 @@ async def callback_handler(event):
             if os.path.isfile(sel_dir_filepath):
                 shutil.move(sel_dir_filepath, BASE_DIR)
             keyboard = [
-                goto('dirfile', data[1], '◀️ back')+goto('file', sel_dir_filename),
+                goto('dirpage', f'{data2[0]}-1', '◀️ back')+goto('file', sel_dir_filename),
                 main_keybtn,
             ]
             await event.edit(f'file: {sel_dir_filepath} moved to main', buttons=keyboard)
@@ -469,6 +512,12 @@ async def callback_handler(event):
             await event.edit('wait..')
             await show_ffmpeg_status(sel_dir_filepath, f'{sel_dir_filepath}.mp4', event, data[0]=='dirfiletomp4copy')
             os.remove(sel_dir_filepath)
+            await event.edit(f'conversion complete!\noutput file: {sel_dir_filename}.mp4')
+        elif data[0]=='dirfiletomp4srv':
+            await event.edit('wait..')
+            link = await remote_convert(event, sel_dir_filepath)
+            os.remove(sel_dir_filepath)
+            await dl_file(link, event, False, os.path.relpath(sel_dir_filepath, BASE_DIR)+'.mp4')
             await event.edit(f'conversion complete!\noutput file: {sel_dir_filename}.mp4')
         elif data[0] in ('uploaddirfile', 'uploaddirfiledoc'):
             await event.edit('wait..')
@@ -516,6 +565,12 @@ async def callback_handler(event):
             for item in os.scandir(BASE_DIR):
                 if item.is_file():
                     await upload_and_send(event, event, os.path.join(BASE_DIR, item.name), item.name, item.name)
+            await event.edit('all files uploaded ✅')
+        elif data[0]=='uploadallsubdirs':
+            await event.edit('wait..')
+            all_files_n_p = get_tree(BASE_DIR)
+            for file in all_files_n_p:
+                await upload_and_send(event, event, all_files_n_p[file][1], all_files_n_p[file][1], all_files_n_p[file][0])
             await event.edit('all files uploaded ✅')
         else:
             if data[1] in files:

@@ -12,3 +12,4 @@ multivolumefile
 asyncio
 thumb-gen
 python-dotenv
+selenium

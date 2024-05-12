@@ -172,7 +172,7 @@ async def remote_convert(event, filepath):
     chrome_options.add_argument('--headless')
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
-    chrome_options.add_argument('--window-size=0,0')
+    #chrome_options.add_argument('--window-size=0,0')
     chrome_options.add_argument('--disable-extensions')
     chrome_options.add_argument('--disable-gpu')
     driver = webdriver.Chrome(options=chrome_options)
@@ -187,7 +187,6 @@ async def remote_convert(event, filepath):
             )
             last = percentage
             last_edited_time = time.time()
-        await asyncio.sleep(0.1)
     driver.execute_script('document.querySelector("#converter > a").click();')
     await asyncio.sleep(1)
     last = 0
@@ -199,8 +198,7 @@ async def remote_convert(event, filepath):
             )
             last = percentage
             last_edited_time = time.time()
-        await asyncio.sleep(0.1)
-    await asyncio.sleep(2)
+    await asyncio.sleep(1)
     link = driver.execute_script('return document.querySelector("#download_file_link").href;')
     driver.save_screenshot(os.path.join(BASE_DIR, 'ss.png'))
     driver.quit()

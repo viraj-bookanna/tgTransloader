@@ -166,7 +166,7 @@ def is_video(file_path, use_hachoir=True):
     if not use_hachoir:
         mime_type, _ = mimetypes.guess_type(file_path)
         if mime_type is not None:
-            return 'video/' in mime_type
+            return 'video/' in mime_type or file_path.lower().endswith('.3gp')
     parser = createParser(file_path)
     if parser:
         metadata = extractMetadata(parser)
@@ -174,20 +174,20 @@ def is_video(file_path, use_hachoir=True):
             return True
     return False
 def extract_file(inputFile, outputFolder, password=None):
-    if inputFile.endswith('.zip'):
+    if inputFile.lower().endswith('.zip'):
         with zipfile.ZipFile(inputFile, 'r') as zip_ref:
             if password is not None:
                 zip_ref.setpassword(password)
             zip_ref.extractall(outputFolder)
-    elif inputFile.endswith('.rar'):
+    elif inputFile.lower().endswith('.rar'):
         with rarfile.RarFile(inputFile, 'r') as rar_ref:
             if password is not None:
                 rar_ref.setpassword(password)
             rar_ref.extractall(outputFolder)
-    elif inputFile.endswith('.7z'):
+    elif inputFile.lower().endswith('.7z'):
         with py7zr.SevenZipFile(inputFile, 'r', password=password) as seven_zip_ref:
             seven_zip_ref.extractall(outputFolder)
-    elif inputFile.endswith(('.7z.001', '.7z.0001')):
+    elif inputFile.lower().endswith(('.7z.001', '.7z.0001')):
         with multivolumefile.open(inputFile.rsplit('.7z', 1)[0]+'.7z', mode='rb') as target_archive:
             with py7zr.SevenZipFile(target_archive, 'r', password=password) as seven_zip_ref:
                 seven_zip_ref.extractall(outputFolder)
@@ -340,11 +340,11 @@ def get_icon(fullPath):
     if os.path.isdir(fullPath):
         return '🗂'
     mime_type, _ = mimetypes.guess_type(fullPath)
-    if fullPath.endswith(('.zip', '.rar', '.7z', '.7z.001', '.7z.0001')):
+    if fullPath.lower().endswith(('.zip', '.rar', '.7z', '.7z.001', '.7z.0001')):
         return '🗜'
     if not mime_type:
         return '🗄'
-    elif 'video/' in mime_type and fullPath.endswith(('.mp4', '.mkv')):
+    elif 'video/' in mime_type and fullPath.lower().endswith(('.mp4', '.mkv')):
         return '🎞▶️'
     elif 'video/' in mime_type:
         return '🎞'
@@ -536,7 +536,7 @@ async def callback_handler(event):
                 else:
                     keyboard.append([Button.inline('Convert to .mp4 ♻️', data=f"{data[0]}tomp4:{data[1]}")])
                 keyboard.append([Button.inline('Upload as document 📎', data=f"upload{data[0]}doc:{data[1]}")])
-            if data[0]=='file' and sel_dir_filename.endswith(('.zip', '.rar', '.7z', '.7z.001', '.7z.0001')):
+            if data[0]=='file' and sel_dir_filename.lower().endswith(('.zip', '.rar', '.7z', '.7z.001', '.7z.0001')):
                 keyboard.append([Button.inline('Extract 🔐', data=f"extract:{data[1]}")])
             keyboard.append([Button.inline('rename ✍️', data=f"rename{data[0]}:{data[1]}")])
             keyboard.append([Button.inline('delete ❌', data=f"del{data[0]}:{data[1]}")])

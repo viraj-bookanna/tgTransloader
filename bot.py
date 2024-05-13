@@ -9,8 +9,6 @@ from hachoir.metadata import extractMetadata
 from datetime import datetime
 from thumb_gen import Generator
 from dotenv import load_dotenv
-from selenium import webdriver
-from selenium.webdriver.common.by import By
 
 load_dotenv(override=True)
 
@@ -65,7 +63,7 @@ def check(log_file):
     except Exception as e:
         print(repr(e))
         return ''
-async def show_ffmpeg_status(input_file_path, output_file_path, msg, codec_copy=True):
+async def show_ffmpeg_status(input_file_path, output_file_path, msg, codec_copy):
     if not os.path.isdir(LOGFILE_DIR):
         os.makedirs(LOGFILE_DIR)
     filename = os.path.basename(input_file_path)
@@ -164,44 +162,6 @@ async def dl_file(url, event, resumable=True, custom_filename=None, download_dir
         timeout=aiohttp.ClientTimeout(total=60*DOWNLOAD_TIMEOUT_MINUTES)
     ) as session:
         return await get_url(session, url, event, resumable, custom_filename, download_dir)
-async def remote_convert(event, filepath):
-    last = 0
-    last_edited_time = 0
-    start_time = time.time()
-    chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_argument('--headless')
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-dev-shm-usage')
-    chrome_options.add_argument('--window-size=0,0')
-    chrome_options.add_argument('--disable-extensions')
-    chrome_options.add_argument('--disable-gpu')
-    driver = webdriver.Chrome(options=chrome_options)
-    driver.get('https://video-converter.com/')
-    file_input = driver.find_element(By.CSS_SELECTOR, '#upload_button > input[type=file]')
-    file_input.send_keys(filepath)
-    while driver.execute_script('return Array.from(document.querySelector("#converter > a").classList).join(" ").indexOf("unpressable")!=-1;'):
-        percentage = float(driver.execute_script('return (document.querySelector("#upload_progress_bar > div.bg_1 > div").clientWidth/document.querySelector("#upload_progress_bar > div.bg_1 > div").parentElement.clientWidth*100).toFixed(2);'))
-        if last+2 < percentage and last_edited_time+5 < time.time():
-            await event.edit("**Uploading to server**: {}\n**FileName**: {}\n**ElapsedTime**: {}".format(
-                progress_bar(percentage), filepath, seconds_to_human_time(time.time()-start_time))
-            )
-            last = percentage
-            last_edited_time = time.time()
-    driver.execute_script('document.querySelector("#converter > a").click();')
-    await asyncio.sleep(1)
-    last = 0
-    while driver.execute_script('return function(){var e=document.querySelector("#convert_progress_bar > div.bg_1 > div").getBoundingClientRect();return e.top>=0&&e.left>=0&&e.bottom<=(window.innerHeight||document.documentElement.clientHeight)&&e.right<=(window.innerWidth||document.documentElement.clientWidth)}();'):
-        percentage = float(driver.execute_script('return (document.querySelector("#convert_progress_bar > div.bg_1 > div").clientWidth/document.querySelector("#convert_progress_bar > div.bg_1 > div").parentElement.clientWidth*100).toFixed(2);'))
-        if last+2 < percentage and last_edited_time+5 < time.time():
-            await event.edit("**Converting**: {}\n**FileName**: {}\n**ElapsedTime**: {}".format(
-                progress_bar(percentage), filepath, seconds_to_human_time(time.time()-start_time))
-            )
-            last = percentage
-            last_edited_time = time.time()
-    await asyncio.sleep(1)
-    link = driver.execute_script('return document.querySelector("#download_file_link").href;')
-    driver.quit()
-    return link
 def is_video(file_path, use_hachoir=True):
     if not use_hachoir:
         mime_type, _ = mimetypes.guess_type(file_path)
@@ -308,6 +268,8 @@ def get_tree(dirPath):
 def make_pages(buttons, prefix, curr_page='1', page_size=6):
     curr_page = int(curr_page)
     pages = [buttons[i:i + page_size] for i in range(0, len(buttons), page_size)]
+    if len(pages)<curr_page:
+        curr_page = len(pages)
     keyboard = pages[curr_page-1]
     prev_nxt = []
     if 1 < curr_page:
@@ -329,8 +291,11 @@ async def mainPage(scanPath, event, page=1, edit=True, page_size=6):
     for file in files:
         fpath = os.path.join(BASE_DIR, files[file])
         text = '{} {}'.format(get_icon(fpath), btntext(db_get(files[file], files[file])))
-        buttons.append(goto('dir' if os.path.isdir(fpath) else 'file', files[file], text))
-    keyboard = make_pages(buttons, 'gotopage:', page)
+        buttons.append([
+            goto('dirpage' if os.path.isdir(fpath) else 'file', files[file], text)[0],
+            Button.inline('❌', data=f"delmainfilepage:{file}-{page}")
+        ])
+    keyboard = make_pages(buttons, 'mainpage:', page)
     keyboard.append([Button.inline('📤 Upload all files 📤', data='uploadall:uploadall')])
     keyboard.append([Button.inline('📤 Upload all files (subdirs) 📤', data='uploadallsubdirs:uploadallsubdirs')])
     keyboard.append([Button.inline('🚫 Delete all 🚫', data='deleteall:deleteall')])
@@ -343,7 +308,7 @@ async def make_dir_btns(event, dirname, page=1, edit=True):
     buttons = [
     [
         Button.inline(
-            btntext(all_files_n_p[file][0]),
+            btntext(get_icon(all_files_n_p[file][1])+' '+all_files_n_p[file][0]),
             data=f"dirfile:{dirname}-{file}"
         ),
         Button.inline(
@@ -368,6 +333,8 @@ def goto(file_or_dir, name, text=''):
     text = text if text!='' else f'Go to {file_or_dir}'
     if file_or_dir=='file':
         name = fileNameHash(name)
+    elif file_or_dir=='dirpage':
+        name = f'{name}-1'
     return [Button.inline(text, data=f"{file_or_dir}:{name}")]
 def get_icon(fullPath):
     if os.path.isdir(fullPath):
@@ -377,6 +344,8 @@ def get_icon(fullPath):
         return '🗜'
     if not mime_type:
         return '🗄'
+    elif 'video/' in mime_type and fullPath.endswith(('.mp4', '.mkv')):
+        return '🎞▶️'
     elif 'video/' in mime_type:
         return '🎞'
     elif 'audio/' in mime_type:
@@ -431,7 +400,7 @@ async def extract_files(event):
         expath = os.path.join(BASE_DIR, cmd[1])
         db_put(cmd[1], files[cmd[1]].rsplit('.', 1)[0])
         if os.path.isdir(expath):
-            await msg.edit('destination already exists', buttons=[goto('dir', cmd[1], 'switch to folder 🔁'), main_keybtn])
+            await msg.edit('destination already exists', buttons=[goto('dirpage', cmd[1], 'switch to folder 🔁'), main_keybtn])
             return
         os.makedirs(expath)
         extract_file(sel_file_path, expath, None if len(cmd)==2 else cmd[2])
@@ -450,7 +419,7 @@ async def rename_file(event):
             dest = os.path.join(os.path.dirname(target), cmd[2])
             keyboard = [
                 goto('dirfile', '{}-{}'.format(cmd2[0], fileNameHash(dest)), 'Go to file'),
-                goto('dir', cmd2[0], '◀️ Back to {}'.format(db_get(cmd2[0]))),
+                goto('dirpage', cmd2[0], '◀️ Back to {}'.format(db_get(cmd2[0]))),
                 main_keybtn,
             ]
         else:
@@ -476,186 +445,133 @@ async def callback_handler(event):
     if not os.path.isdir(BASE_DIR):
         os.makedirs(BASE_DIR)
     files = dirfiles(BASE_DIR)
-    sel_filename = None
+    keyboard = None
+    text = None
     try:
         data = event.data.decode('utf-8').split(':', 1)
         data2 = data[1].split('-')
         sel_dir = os.path.join(BASE_DIR, data2[0])
-        if os.path.isdir(sel_dir):
+        if len(data2) > 1 and os.path.isdir(sel_dir):
             all_files_n_p = get_tree(sel_dir)
-            if len(data2) > 1 and data2[1] in all_files_n_p and os.path.isfile(all_files_n_p[data2[1]][1]):
+            if data2[1] in all_files_n_p and os.path.isfile(all_files_n_p[data2[1]][1]):
                 sel_dir_filename = all_files_n_p[data2[1]][0]
                 sel_dir_filepath = all_files_n_p[data2[1]][1]
-        if data[0]=='main':
-            await mainPage(BASE_DIR, event)
-        elif data[0]=='gotopage':
-            await mainPage(BASE_DIR, event, data[1])
-        elif data[0]=='deldirfilepage':
-            if os.path.isfile(sel_dir_filepath):
+        elif data2[0] in files:
+            sel_dir_filename = files[data2[0]]
+            sel_dir_filepath = os.path.join(BASE_DIR, sel_dir_filename)
+        else:
+            sel_dir_filename = data2[0]
+            sel_dir_filepath = os.path.join(BASE_DIR, sel_dir_filename)
+        if data[0] in ('mainpage', 'delmainfilepage'):
+            if data[0].startswith('del') and os.path.isfile(sel_dir_filepath):
                 os.remove(sel_dir_filepath)
-            await make_dir_btns(event, data2[0], data2[2])
-        elif data[0]=='dirpage':
+                data2[0] = data2[1]
+            await mainPage(BASE_DIR, event, data2[0])
+        elif data[0] in ('dirpage', 'deldirfilepage'):
+            if data[0].startswith('del') and os.path.isfile(sel_dir_filepath):
+                os.remove(sel_dir_filepath)
+                data2[1] = data2[2]
             await make_dir_btns(event, data2[0], data2[1])
         elif data[0]=='mvdirfile':
             if os.path.isfile(sel_dir_filepath):
                 shutil.move(sel_dir_filepath, BASE_DIR)
             keyboard = [
-                goto('dirpage', f'{data2[0]}-1', '◀️ back')+goto('file', sel_dir_filename),
-                main_keybtn,
+                goto('file', sel_dir_filename),
             ]
-            await event.edit(f'file: {sel_dir_filepath} moved to main', buttons=keyboard)
-        elif data[0]=='deldirfile':
-            if os.path.isfile(sel_dir_filepath):
-                os.remove(sel_dir_filepath)
-            await event.edit(f'file: {sel_dir_filepath} deleted', buttons=[goto('dir', data2[0], '◀️ Back to {}'.format(db_get(data2[0])))])
-        elif data[0] in ('dirfiletomp4c', 'dirfiletomp4copy'):
-            await event.edit('wait..')
-            await show_ffmpeg_status(sel_dir_filepath, f'{sel_dir_filepath}.mp4', event, data[0]=='dirfiletomp4copy')
-            os.remove(sel_dir_filepath)
-            await event.edit(f'conversion complete!\noutput file: {sel_dir_filename}.mp4')
-        elif data[0]=='dirfiletomp4srv':
-            await event.edit('wait..')
-            link = await remote_convert(event, sel_dir_filepath)
-            os.remove(sel_dir_filepath)
-            await dl_file(link, event, False, f'{sel_dir_filename}.mp4', os.path.dirname(sel_dir_filepath))
-            await event.edit(f'conversion complete!\noutput file: {sel_dir_filepath}\nlink: {link}')
-        elif data[0] in ('uploaddirfile', 'uploaddirfiledoc'):
-            await event.edit('wait..')
-            await upload_and_send(event, event, sel_dir_filepath, sel_dir_filepath, sel_dir_filename, data[0]=='uploaddirfiledoc')
-            await event.edit(f'file {sel_dir_filename} uploaded ✅', buttons=[main_keybtn])
-        elif data[0]=='dirfiletomp4':
+            text = f'file: {sel_dir_filepath} moved to main'
+        elif data[0] in ('filetomp4', 'dirfiletomp4'):
             keyboard = [
-                [Button.inline('Normal convert (slow)', data=f"dirfiletomp4c:{data[1]}")],
-                [Button.inline('Codec copy (fast)', data=f"dirfiletomp4copy:{data[1]}")],
-                [Button.inline('Server convert (fast)', data=f"dirfiletomp4srv:{data[1]}")],
-                goto('dirfile', data[1], '◀️ Back'),
-                goto('dir', data2[0], '◀️ Back to {}'.format(db_get(data2[0]))),
-                main_keybtn
+                [Button.inline('Normal convert (slow)', data=f"{data[0]}c:{data[1]}")],
+                [Button.inline('Codec copy (fast)', data=f"{data[0]}copy:{data[1]}")],
             ]
-            await event.edit(f'file: {sel_dir_filename}\n\nconversion options:', buttons=keyboard)
-        elif data[0]=='renamedirfile':
-            await event.edit(f'file: `{sel_dir_filename}`\nuse following command to rename\n\n`/rn {data[1]} new_name`', buttons=[goto('dir', data2[0], '◀️ Back to {}'.format(db_get(data2[0]))),main_keybtn])
-        elif data[0]=='dirfilegenthumbs':
+            if 'dirfile' in data[0]:
+                keyboard.append(goto('dirfile', data[1], '◀️ Back'))
+            else:
+                keyboard.append(goto('file', sel_dir_filename, '◀️ Back'))
+            text = f'file: {sel_dir_filename}\n\nconversion options:'
+        elif data[0] in ('filetomp4c', 'filetomp4copy', 'dirfiletomp4c', 'dirfiletomp4copy'):
+            await event.edit('wait..')
+            await show_ffmpeg_status(sel_dir_filepath, f'{sel_dir_filepath}.mp4', event, 'copy' in data[0])
+            os.remove(sel_dir_filepath)
+            keyboard = []
+            text = f'conversion complete!\noutput file: {sel_dir_filename}.mp4'
+        elif data[0] in ('uploadfile', 'uploadfiledoc', 'uploaddirfile', 'uploaddirfiledoc'):
+            await event.edit('wait..')
+            await upload_and_send(event, event, sel_dir_filepath, sel_dir_filepath, sel_dir_filename, 'doc' in data[0])
+            keyboard = []
+            text = f'file {sel_dir_filename} uploaded ✅'
+        elif data[0] in ('renamefile', 'renamedirfile'):
+            keyboard = []
+            if 'dirfile' in data[0]:
+                keyboard.append(goto('dirfile', data[1], '◀️ Back'))
+            else:
+                keyboard.append(goto('file', sel_dir_filename, '◀️ Back'))
+            text = f'file: `{sel_dir_filename}`\nuse following command to rename\n\n`/rn {data[1]} new_name`'
+        elif data[0]=='extract':
+            keyboard = [goto('file', sel_dir_filename, f'◀️ Back')]
+            text = f'file: `{sel_dir_filename}`\nuse following command to extract\n\n`/ex {data[1]} passwd`'
+        elif data[0] in ('delfile', 'deldirfile'):
+            fof = 'file'
+            if os.path.isdir(sel_dir_filepath):
+                shutil.rmtree(sel_dir_filepath)
+                fof = 'folder'
+            elif os.path.isfile(sel_dir_filepath):
+                os.remove(sel_dir_filepath)
+            keyboard = []
+            text = f'{fof}: {sel_dir_filename} deleted'
+        elif data[0] in ('filegenthumbs', 'dirfilegenthumbs'):
             await event.edit('wait..')
             thumb = gen_thumbs(sel_dir_filepath)
             await event.respond(sel_dir_filename, file=thumb)
             await event.delete()
-            await event.respond('thumbnail generated successfully', buttons=[goto('dir', data2[0], '◀️ Back to {}'.format(db_get(data2[0]))),main_keybtn])
-        elif data[0]=='dirfile':
+            keyboard = []
+            text = 'thumbnail generated successfully'
+        elif data[0] in ('file', 'dirfile'):
             keyboard = [
-                [Button.inline('Upload 📤', data=f"uploaddirfile:{data[1]}")],
+                [Button.inline('Upload 📤', data=f"upload{data[0]}:{data[1]}")],
             ]
             if is_video(sel_dir_filepath, False):
                 if sel_dir_filepath.lower().endswith('.mp4'):
-                    keyboard.append([Button.inline('Generate thumbnails 🎩', data=f"dirfilegenthumbs:{data[1]}")])
+                    keyboard.append([Button.inline('Generate thumbnails 🎩', data=f"{data[0]}genthumbs:{data[1]}")])
                 else:
-                    keyboard.append([Button.inline('Convert to .mp4 ♻️', data=f"dirfiletomp4:{data[1]}")])
-                keyboard.append([Button.inline('Upload as document 📎', data=f"uploaddirfiledoc:{data[1]}")])
-            keyboard.append([Button.inline('rename ✍️', data=f"renamedirfile:{data[1]}")])
-            keyboard.append([Button.inline('move to main 📑', data=f"mvdirfile:{data[1]}")])
-            keyboard.append([Button.inline('delete ❌', data=f"deldirfile:{data[1]}")])
-            keyboard.append(goto('dir', data2[0], '◀️ Back to {}'.format(db_get(data2[0]))))
-            await event.edit('{} file: {}\nsize: {}'.format(get_icon(sel_dir_filepath), sel_dir_filepath, humanify(os.path.getsize(sel_dir_filepath))), buttons=keyboard)
+                    keyboard.append([Button.inline('Convert to .mp4 ♻️', data=f"{data[0]}tomp4:{data[1]}")])
+                keyboard.append([Button.inline('Upload as document 📎', data=f"upload{data[0]}doc:{data[1]}")])
+            if data[0]=='file' and sel_dir_filename.endswith(('.zip', '.rar', '.7z', '.7z.001', '.7z.0001')):
+                keyboard.append([Button.inline('Extract 🔐', data=f"extract:{data[1]}")])
+            keyboard.append([Button.inline('rename ✍️', data=f"rename{data[0]}:{data[1]}")])
+            keyboard.append([Button.inline('delete ❌', data=f"del{data[0]}:{data[1]}")])
+            if data[0]=='dirfile':
+                keyboard.append([Button.inline('move to main 📑', data=f"mvdirfile:{data[1]}")])
+            text = '{} file: {}\nsize: {}'.format(get_icon(sel_dir_filepath), sel_dir_filepath, humanify(os.path.getsize(sel_dir_filepath)))
         elif data[0]=='deleteall':
-            await event.edit('ARE YOU SURE?', buttons=[[Button.inline('Yes', data='deleteallyes:deleteallyes'), Button.inline('No', data='main:main')]])
+            keyboard = [[Button.inline('Yes', data='deleteallyes:deleteallyes'), Button.inline('No', data='main:main')]]
+            text = 'ARE YOU SURE?'
         elif data[0]=='deleteallyes':
             shutil.rmtree(BASE_DIR)
-            await event.edit('ALL FILES DELETED !')
-        elif data[0]=='uploadall':
+            text = 'ALL FILES DELETED !'
+        elif 'uploadall' in data[0]:
             await event.edit('wait..')
-            for item in os.scandir(BASE_DIR):
-                if item.is_file():
-                    await upload_and_send(event, event, os.path.join(BASE_DIR, item.name), item.name, item.name)
-            await event.edit('all files uploaded ✅')
-        elif data[0]=='uploadallsubdirs':
-            await event.edit('wait..')
-            all_files_n_p = get_tree(BASE_DIR)
+            if data[0]=='uploadall':
+                all_files_n_p = gen_hash_list({item.name:os.path.join(BASE_DIR, item.name) for item in os.scandir(BASE_DIR) if item.is_file()})
+            elif data[0]=='uploadalldir':
+                all_files_n_p = get_tree(sel_dir_filepath)
+            elif data[0]=='uploadallsubdirs':
+                all_files_n_p = get_tree(BASE_DIR)
             for file in all_files_n_p:
                 await upload_and_send(event, event, all_files_n_p[file][1], all_files_n_p[file][1], all_files_n_p[file][0])
-            await event.edit('all files uploaded ✅')
-        else:
-            if data[1] in files:
-                sel_filename = files[data[1]]
-                sel_file_path = os.path.join(BASE_DIR, sel_filename)
-            else:
-                sel_filename = data[1]
-                sel_file_path = os.path.join(BASE_DIR, sel_filename)
-        if not sel_filename:
+            text = 'all files uploaded ✅'
+        if text is None:
             return
-        elif not (os.path.isdir(sel_file_path) or os.path.isfile(sel_file_path)):
-            await event.edit("file dosen't exists")
-        elif data[0]=='file':
-            ico = get_icon(sel_file_path)
-            keyboard = [
-                [Button.inline('Upload 📤', data=f"uploadfile:{data[1]}")],
-            ]
-            if is_video(sel_file_path, False):
-                keyboard.append([Button.inline('Upload as document 📎', data=f"uploadfiledoc:{data[1]}")])
-                if sel_filename.lower().endswith('.mp4'):
-                    keyboard.append([Button.inline('Generate thumbnails 🎩', data=f"filegenthumbs:{data[1]}")])
-                else:
-                    keyboard.append([Button.inline('Convert to .mp4 ♻️', data=f"filetomp4:{data[1]}")])
-            if sel_filename.endswith(('.zip', '.rar', '.7z', '.7z.001', '.7z.0001')):
-                keyboard.append([Button.inline('Extract 🔐', data=f"extract:{data[1]}")])
-            keyboard.append([Button.inline('rename ✍️', data=f"rename:{data[1]}")])
-            keyboard.append([Button.inline('delete ❌', data=f"delete:{data[1]}")])
-            keyboard.append(main_keybtn)
-            filesize = humanify(os.path.getsize(sel_file_path))
-            await event.edit(f'{ico} file: {sel_filename}\nsize: {filesize}', buttons=keyboard)
-        elif data[0]=='dir':
-            await make_dir_btns(event, data[1])
-        elif data[0] in ('uploadfile', 'uploadfiledoc'):
-            event.edit('wait..')
-            await upload_and_send(event, event, sel_file_path, sel_filename, sel_filename, data[0]=='uploadfiledoc')
-            await event.edit(f'file {sel_filename} uploaded ✅', buttons=[main_keybtn])
-        elif data[0]=='filegenthumbs':
-            await event.edit('wait..')
-            thumb = gen_thumbs(sel_file_path)
-            await event.respond(sel_filename, file=thumb)
-            await event.delete()
-            await event.respond('thumbnail generated successfully', buttons=[main_keybtn])
-        elif data[0]=='filetomp4':
-            keyboard = [
-                [Button.inline('Normal convert (slow)', data=f"filetomp4c:{data[1]}")],
-                [Button.inline('Codec copy (fast)', data=f"filetomp4copy:{data[1]}")],
-                [Button.inline('Server convert (fast)', data=f"filetomp4srv:{data[1]}")],
-                goto('file', sel_filename, '◀️ Back'),
-                main_keybtn,
-            ]
-            await event.edit(f'file: {sel_filename}\n\nconversion options:', buttons=keyboard)
-        elif data[0] in ('filetomp4c', 'filetomp4copy'):
-            await event.edit('wait..')
-            await show_ffmpeg_status(sel_file_path, f'{sel_file_path}.mp4', event, data[0]=='filetomp4copy')
-            os.remove(sel_file_path)
-            await event.edit(f'conversion complete!\noutput file: {sel_filename}.mp4')
-        elif data[0]=='filetomp4srv':
-            await event.edit('wait..')
-            link = await remote_convert(event, sel_file_path)
-            os.remove(sel_file_path)
-            await dl_file(link, event, False, f'{sel_filename}.mp4')
-            await event.edit(f'conversion complete!\noutput file: {sel_filename}.mp4\nlink: {link}')
-        elif data[0]=='extract':
-            await event.edit(f'file: `{sel_filename}`\nuse following command to extract\n\n`/ex {data[1]} passwd`', buttons=[main_keybtn])
-        elif data[0]=='uploadalldir':
-            await event.edit('wait..')
-            all_files_n_p = get_tree(sel_file_path)
-            for file in all_files_n_p:
-                await upload_and_send(event, event, all_files_n_p[file][1], all_files_n_p[file][1], all_files_n_p[file][0])
-            await event.edit('all files uploaded ✅')
-        elif data[0]=='rename':
-            await event.edit(f'file: `{sel_filename}`\nuse following command to rename\n\n`/rn {data[1]} new_name`', buttons=[main_keybtn])
-        elif data[0]=='delete':
-            fof = 'file'
-            if os.path.isdir(sel_file_path):
-                shutil.rmtree(sel_file_path)
-                fof = 'folder'
-                sel_filename = db_get(sel_filename, sel_filename)
-            elif os.path.isfile(sel_file_path):
-                os.remove(sel_file_path)
-            await event.edit(f'{fof}: {sel_filename} deleted', buttons=[main_keybtn])
+        elif keyboard is None:
+            await event.edit(text)
+            return
+        if 'dirfile' in data[0]:
+            keyboard.append(goto('dirpage', data2[0], '◀️ Back to {}'.format(db_get(data2[0]))))
+        keyboard.append(main_keybtn)
+        await event.edit(text, buttons=keyboard)
     except Exception as e:
         await event.respond(f"Error: {e}")
 
-main_keybtn = [Button.inline('🔙 Back to files', data="main:main")]
+main_keybtn = [Button.inline('🔙 Back to files', data="mainpage:1")]
 with bot:
     bot.run_until_disconnected()

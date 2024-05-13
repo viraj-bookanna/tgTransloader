@@ -105,7 +105,7 @@ def parse_header(header):
         return header[0].strip(), {}
     params = [p.split('=') for p in header[1].split(';')]
     return header[0].strip(), {key[0].strip(): key[1].strip('" ') for key in params}
-async def get_url(session, url, event, resumable, custom_filename):
+async def get_url(session, url, event, resumable, custom_filename, download_dir):
     current = 0
     last = 0
     last_edited_time = 0
@@ -142,7 +142,7 @@ async def get_url(session, url, event, resumable, custom_filename):
             file_org_name = server_filename
         if len(file_org_name) > 250:
             file_org_name = hashlib.md5(file_org_name.encode()).hexdigest()
-        file_name = os.path.join(BASE_DIR, file_org_name)
+        file_name = os.path.join(download_dir, file_org_name)
         async with aiofiles.open(file_name, 'wb') as file:
             async for chunk in response.content.iter_chunked(1024):
                 await file.write(chunk)
@@ -158,12 +158,12 @@ async def get_url(session, url, event, resumable, custom_filename):
         await event.edit(f'file {file_org_name} downloaded successful!', buttons=[goto('file', file_org_name), main_keybtn])
         return file_name
     await event.edit("Error\nSomething went wrong ..")
-async def dl_file(url, event, resumable=True, custom_filename=None):
+async def dl_file(url, event, resumable=True, custom_filename=None, download_dir=BASE_DIR):
     async with aiohttp.ClientSession(
         connector=aiohttp.TCPConnector(ssl=False),
         timeout=aiohttp.ClientTimeout(total=60*DOWNLOAD_TIMEOUT_MINUTES)
     ) as session:
-        return await get_url(session, url, event, resumable, custom_filename)
+        return await get_url(session, url, event, resumable, custom_filename, download_dir)
 async def remote_convert(event, filepath):
     last = 0
     last_edited_time = 0
@@ -172,7 +172,7 @@ async def remote_convert(event, filepath):
     chrome_options.add_argument('--headless')
     chrome_options.add_argument('--no-sandbox')
     chrome_options.add_argument('--disable-dev-shm-usage')
-    #chrome_options.add_argument('--window-size=0,0')
+    chrome_options.add_argument('--window-size=0,0')
     chrome_options.add_argument('--disable-extensions')
     chrome_options.add_argument('--disable-gpu')
     driver = webdriver.Chrome(options=chrome_options)
@@ -200,7 +200,6 @@ async def remote_convert(event, filepath):
             last_edited_time = time.time()
     await asyncio.sleep(1)
     link = driver.execute_script('return document.querySelector("#download_file_link").href;')
-    driver.save_screenshot(os.path.join(BASE_DIR, 'ss.png'))
     driver.quit()
     return link
 def is_video(file_path, use_hachoir=True):
@@ -518,7 +517,7 @@ async def callback_handler(event):
             await event.edit('wait..')
             link = await remote_convert(event, sel_dir_filepath)
             os.remove(sel_dir_filepath)
-            await dl_file(link, event, False, os.path.relpath(sel_dir_filepath, BASE_DIR)+'.mp4')
+            await dl_file(link, event, False, f'{sel_dir_filename}.mp4', os.path.dirname(sel_dir_filepath))
             await event.edit(f'conversion complete!\noutput file: {sel_dir_filepath}\nlink: {link}')
         elif data[0] in ('uploaddirfile', 'uploaddirfiledoc'):
             await event.edit('wait..')

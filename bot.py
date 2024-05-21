@@ -1,4 +1,4 @@
-import zipfile,rarfile,py7zr,os,time,hashlib,urllib.parse,aiohttp,aiofiles,shutil,multivolumefile,re,platform,shlex,asyncio,subprocess,mimetypes,sqlite3
+import zipfile,rarfile,py7zr,os,time,hashlib,urllib.parse,aiohttp,aiofiles,shutil,multivolumefile,re,platform,shlex,asyncio,subprocess,mimetypes,sqlite3,requests,websockets,json,random,string
 from telethon import TelegramClient, events, Button
 from telethon.sessions import StringSession
 from telethon.tl.types import MessageEntityUrl
@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS key_values (
 ''')
     cursor.execute('INSERT OR REPLACE INTO key_values (key, value) VALUES (?, ?)', (key, value))
     CONN.commit()
+def shell_quote(string):
+    return mslex.quote(string) if IS_WIN else shlex.quote(string)
 def human_time_to_seconds(human_time):
     return (datetime.strptime(human_time, "%H:%M:%S.%f") - datetime(1900, 1, 1)).total_seconds()
 def seconds_to_human_time(sec): 
@@ -68,7 +70,7 @@ async def show_ffmpeg_status(input_file_path, output_file_path, msg, codec_copy)
         os.makedirs(LOGFILE_DIR)
     filename = os.path.basename(input_file_path)
     logfile = os.path.join(LOGFILE_DIR, filename+fileNameHash(input_file_path)+'.log')
-    cmd = ['python' if IS_WIN else 'python3', 'converter.py', shlex.quote(input_file_path), shlex.quote(output_file_path), shlex.quote(logfile), '1' if codec_copy else '0']
+    cmd = ['python' if IS_WIN else 'python3', 'converter.py', shell_quote(input_file_path), shell_quote(output_file_path), shell_quote(logfile), '1' if codec_copy else '0']
     if IS_WIN:
         subprocess.Popen(cmd, shell=True, stdin=None, stdout=None, stderr=None, close_fds=True)
     else:
@@ -85,6 +87,120 @@ async def show_ffmpeg_status(input_file_path, output_file_path, msg, codec_copy)
             last = status
             last_edit_time = time.time()
         await asyncio.sleep(2)
+async def show_upload_status(input_file_path, event, host, uid):
+    if not os.path.isdir(LOGFILE_DIR):
+        os.makedirs(LOGFILE_DIR)
+    filename = os.path.basename(input_file_path)
+    logfile = os.path.join(LOGFILE_DIR, filename+fileNameHash(input_file_path)+'.log')
+    outfile = os.path.join(LOGFILE_DIR, filename+fileNameHash(input_file_path)+'.json')
+    cmd = ['python' if IS_WIN else 'python3', 'uploader.py', input_file_path, logfile, outfile, host, uid]
+    if IS_WIN:
+        subprocess.Popen(cmd, shell=True, stdin=None, stdout=None, stderr=None, close_fds=True)
+    else:
+        os.system(' '.join(cmd)+" 1> /dev/null 2>&1 & ")
+    await asyncio.sleep(2)
+    start_time = time.time()
+    last = 0
+    last_edit_time = start_time
+    while os.path.isfile(logfile):
+        try:
+            with open(logfile, 'r') as f:
+                monitor = [int(x) for x in f.read().split(',')]
+        except:
+            continue
+        percentage = round(monitor[0]/monitor[1] * 100, 2)
+        if last+2 < percentage and last_edit_time+5 < time.time():
+            await event.edit("**Uploading**: {}\n**FileName**: {}\n**Size**: {}\n**Uploaded**: {}\n**ElapsedTime**: {}".format(
+                progress_bar(percentage), filename, humanify(monitor[1]), humanify(monitor[0]), seconds_to_human_time(time.time()-start_time)
+            ))
+            last = percentage
+            last_edit_time = time.time()
+        await asyncio.sleep(2)
+    with open(outfile, 'r') as f:
+        retval = f.read()
+    os.remove(outfile)
+    return json.loads(retval)
+async def convert_in_server(input_file_path, event):
+    def get_sid():
+        response = requests.get(f'https://{vserver_host}/socket.io/?EIO=4&transport=polling', headers=headers, verify=0)
+        return response.text.split('sid":"')[1].split('"')[0]
+    def poll_msg(sid, msg, prefix='42'):
+        data = prefix+msg
+        response = requests.post(f'https://{vserver_host}/socket.io/?EIO=4&transport=polling&sid={sid}', verify=0, headers=headers, data=data)
+        return response.text
+    user_id = 'JMeyGGTY1wXV5UzlyTo9716268092706'
+    vserver_id = 's71'
+    vserver_host = f'{vserver_id}.video-converter.com'
+    headers = {
+        'Host': vserver_host,
+        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Microsoft Edge";v="120"',
+        'accept': '*/*',
+        'content-type': 'text/plain;charset=UTF-8',
+        'sec-ch-ua-mobile': '?1',
+        'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 EdgA/120.0.0.0',
+        'sec-ch-ua-platform': 'Android',
+        'origin': 'https://video-converter.com',
+        'sec-fetch-site': 'same-site',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-dest': 'empty',
+        'referer': 'https://video-converter.com/',
+        'accept-language': 'si-LK,si;q=0.9,en-US;q=0.8,en;q=0.7',
+    }
+    sessid = get_sid()
+    poll_msg(sessid, '', '40')
+    import ssl;ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT);ssl_context.check_hostname = False;ssl_context.verify_mode = ssl.CERT_NONE
+    async with websockets.connect(f'wss://{vserver_host}/socket.io/?EIO=4&transport=websocket&sid={sessid}', ssl=ssl_context) as websocket:
+        await websocket.send('2probe')
+        msg = await show_upload_status(input_file_path, event, vserver_host, user_id)
+        cmd = {
+            "site_id": "vconv",
+            "uid": user_id,
+            "operation_id": '{}_{}_{}'.format(round(time.time()*1000), vserver_id, ''.join([random.choice(string.ascii_lowercase+string.digits) for i in range(10)])),
+            "action_type": "encode",
+            "enable_transfer_proxy": False,
+            "country": "LK",
+            "tmp_filename": msg['tmp_filename'],
+            "duration_in_seconds": msg['ff']['duration_in_seconds'],
+            "acodec": "aac",
+            "vcodec": "h265",
+            "no_audio": not msg['ff']['has_audio_streams'],
+            "format_type": "video",
+            "format": "mp4",
+            "preset": "same",
+            "preset_priority": True,
+            "lang_id": "en",
+            "host": "video-converter.com",
+            "protocol": "https:",
+            "isp": 0,
+            "email": "",
+            "app_id": "vconv"
+        }
+        start_time = time.time()
+        last = 0
+        last_edit_time = start_time
+        filename = os.path.basename(input_file_path)
+        while 1:
+            try:
+                response = await websocket.recv()
+                if response == '2':
+                    await websocket.send('3')
+                elif response == '3probe':
+                    await websocket.send('5')
+                    await websocket.send('42'+json.dumps(["encode",cmd]))
+                if response.startswith('42'):
+                    msg = json.loads(response[2:])
+                    if msg[1]['message_type'] == 'progress':
+                        if last+2 < msg[1]['progress_value'] and last_edit_time+5 < time.time():
+                            await event.edit("**Converting**: {}\n**FileName**: {}\n**ElapsedTime**: {}".format(
+                                progress_bar(msg[1]['progress_value']), filename, seconds_to_human_time(time.time()-start_time)
+                            ))
+                            last = msg[1]['progress_value']
+                            last_edit_time = time.time()
+                    elif msg[0]=='encode' and msg[1]['message_type'] == 'final_result':
+                        return msg[1]['download_url']
+            except websockets.ConnectionClosedOK as e:
+                await event.edit(repr(e))
+                break
 def find_all_urls(message):
     ret = list()
     if message.entities is None:
@@ -483,15 +599,20 @@ async def callback_handler(event):
             keyboard = [
                 [Button.inline('Normal convert (slow)', data=f"{data[0]}c:{data[1]}")],
                 [Button.inline('Codec copy (fast)', data=f"{data[0]}copy:{data[1]}")],
+                [Button.inline('Server convert (fast)', data=f"{data[0]}srv:{data[1]}")],
             ]
             if 'dirfile' in data[0]:
                 keyboard.append(goto('dirfile', data[1], '◀️ Back'))
             else:
                 keyboard.append(goto('file', sel_dir_filename, '◀️ Back'))
             text = f'file: {sel_dir_filename}\n\nconversion options:'
-        elif data[0] in ('filetomp4c', 'filetomp4copy', 'dirfiletomp4c', 'dirfiletomp4copy'):
+        elif data[0].startswith(('filetomp4', 'dirfiletomp4')):
             await event.edit('wait..')
-            await show_ffmpeg_status(sel_dir_filepath, f'{sel_dir_filepath}.mp4', event, 'copy' in data[0])
+            if data[0].endswith('srv'):
+                link = await convert_in_server(sel_dir_filepath, event)
+                await dl_file(link, event, False, '{}.mp4'.format(os.path.basename(sel_dir_filepath)), os.path.dirname(sel_dir_filepath))
+            else:
+                await show_ffmpeg_status(sel_dir_filepath, f'{sel_dir_filepath}.mp4', event, 'copy' in data[0])
             os.remove(sel_dir_filepath)
             keyboard = []
             text = f'conversion complete!\noutput file: {sel_dir_filename}.mp4'

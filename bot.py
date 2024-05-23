@@ -122,11 +122,11 @@ async def show_upload_status(input_file_path, event, host, uid):
     return json.loads(retval)
 async def convert_in_server(input_file_path, event):
     def get_sid():
-        response = requests.get(f'https://{vserver_host}/socket.io/?EIO=4&transport=polling', headers=headers, verify=0)
+        response = requests.get(f'https://{vserver_host}/socket.io/?EIO=4&transport=polling', headers=headers)
         return response.text.split('sid":"')[1].split('"')[0]
     def poll_msg(sid, msg, prefix='42'):
         data = prefix+msg
-        response = requests.post(f'https://{vserver_host}/socket.io/?EIO=4&transport=polling&sid={sid}', verify=0, headers=headers, data=data)
+        response = requests.post(f'https://{vserver_host}/socket.io/?EIO=4&transport=polling&sid={sid}', headers=headers, data=data)
         return response.text
     user_id = 'JMeyGGTY1wXV5UzlyTo9716268092706'
     vserver_id = 's71'
@@ -148,8 +148,7 @@ async def convert_in_server(input_file_path, event):
     }
     sessid = get_sid()
     poll_msg(sessid, '', '40')
-    import ssl;ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT);ssl_context.check_hostname = False;ssl_context.verify_mode = ssl.CERT_NONE
-    async with websockets.connect(f'wss://{vserver_host}/socket.io/?EIO=4&transport=websocket&sid={sessid}', ssl=ssl_context) as websocket:
+    async with websockets.connect(f'wss://{vserver_host}/socket.io/?EIO=4&transport=websocket&sid={sessid}') as websocket:
         await websocket.send('2probe')
         msg = await show_upload_status(input_file_path, event, vserver_host, user_id)
         cmd = {

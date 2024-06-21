@@ -12,6 +12,5 @@ multivolumefile
 asyncio
 thumb-gen
 python-dotenv
-requests_toolbelt
 mslex
 websockets

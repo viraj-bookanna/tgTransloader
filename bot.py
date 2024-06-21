@@ -78,7 +78,7 @@ async def show_ffmpeg_status(input_file_path, output_file_path, msg, codec_copy)
     await asyncio.sleep(10)
     start_time = time.time()
     last = ''
-    last_edit_time = start_time
+    last_edit_time = 0
     while os.path.isfile(logfile):
         status = check(logfile)
         if last_edit_time+5 < time.time() and last != status:
@@ -87,52 +87,73 @@ async def show_ffmpeg_status(input_file_path, output_file_path, msg, codec_copy)
             last = status
             last_edit_time = time.time()
         await asyncio.sleep(2)
-async def show_upload_status(input_file_path, event, host, uid):
-    if not os.path.isdir(LOGFILE_DIR):
-        os.makedirs(LOGFILE_DIR)
-    filename = os.path.basename(input_file_path)
-    logfile = os.path.join(LOGFILE_DIR, filename+fileNameHash(input_file_path)+'.log')
-    outfile = os.path.join(LOGFILE_DIR, filename+fileNameHash(input_file_path)+'.json')
-    cmd = ['python' if IS_WIN else 'python3', 'uploader.py', input_file_path, logfile, outfile, host, uid]
-    if IS_WIN:
-        subprocess.Popen(cmd, shell=True, stdin=None, stdout=None, stderr=None, close_fds=True)
-    else:
-        os.system(' '.join(cmd)+" 1> /dev/null 2>&1 & ")
-    await asyncio.sleep(2)
-    start_time = time.time()
-    last = 0
-    last_edit_time = start_time
-    while os.path.isfile(logfile):
-        try:
-            with open(logfile, 'r') as f:
-                monitor = [int(x) for x in f.read().split(',')]
-        except:
-            continue
-        percentage = round(monitor[0]/monitor[1] * 100, 2)
-        if last+2 < percentage and last_edit_time+5 < time.time():
-            await event.edit("**Uploading**: {}\n**FileName**: {}\n**Size**: {}\n**Uploaded**: {}\n**ElapsedTime**: {}".format(
-                progress_bar(percentage), filename, humanify(monitor[1]), humanify(monitor[0]), seconds_to_human_time(time.time()-start_time)
-            ))
-            last = percentage
-            last_edit_time = time.time()
-        await asyncio.sleep(2)
-    with open(outfile, 'r') as f:
-        retval = f.read()
-    os.remove(outfile)
-    return json.loads(retval)
+async def file_sender(file_name, callback=None):
+    async with aiofiles.open(file_name, 'rb') as f:
+        current = 0
+        total = os.path.getsize(file_name)
+        chunk = await f.read(64*1024)
+        while chunk:
+            if callback is not None:
+                current += len(chunk)
+                await callback(current, total)
+            yield chunk
+            chunk = await f.read(64*1024)
+async def show_upload_status(file_path, host, uid, callback):
+    headers = {
+        'Sec-Ch-Ua': '"Microsoft Edge";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0',
+        'Accept': '*/*',
+        'Origin': 'https://video-converter.com',
+        'Sec-Fetch-Site': 'same-site',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Dest': 'empty',
+        'Referer': 'https://video-converter.com/',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Priority': 'u=1, i',
+    }
+    filename = os.path.basename(file_path)
+    filesize = str(os.path.getsize(file_path))
+    form = [
+        ('uid', uid),
+        ('id3', 'true'),
+        ('ff', 'true'),
+        ('flowChunkNumber', '1'),
+        ('flowChunkSize', filesize),
+        ('flowCurrentChunkSize', filesize),
+        ('flowTotalSize', filesize),
+        ('flowIdentifier', '{}-{}'.format(filesize, re.sub(r'[^a-zA-Z0-9]', '', filename))),
+        ('flowFilename', filename),
+        ('flowRelativePath', filename),
+        ('flowTotalChunks', '1'),
+    ]
+    boundary = '----WebKitFormBoundary{}'.format(''.join([random.choice(string.ascii_letters+string.digits) for i in range(16)]))
+    with aiohttp.MultipartWriter('form-data', boundary=boundary) as mpwriter:
+        for item in form:
+            part = mpwriter.append(item[1])
+            part.set_content_disposition('form-data', name=item[0])
+        part = mpwriter.append(file_sender(file_path), {'content-type': 'application/octet-stream'})
+        part.set_content_disposition('form-data', name='file', filename=filename)
+        async with aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(ssl=False),
+            timeout=aiohttp.ClientTimeout(total=60*DOWNLOAD_TIMEOUT_MINUTES)
+        ) as session:
+            async with session.post(f'https://{host}/vconv/upload/flow/', data=mpwriter, headers=headers) as resp:
+                try:
+                    return await resp.json()
+                except:
+                    response = await resp.text()
+                    raise Exception(f'InvalidResponse: {resp.status}\n{response}')
 async def convert_in_server(input_file_path, event):
     def get_sid():
         response = requests.get(f'https://{vserver_host}/socket.io/?EIO=4&transport=polling', headers=headers)
         return response.text.split('sid":"')[1].split('"')[0]
-    def poll_msg(sid, msg, prefix='42'):
-        data = prefix+msg
+    def poll_msg(sid, sockmsg, prefix='42'):
+        data = prefix+sockmsg
         response = requests.post(f'https://{vserver_host}/socket.io/?EIO=4&transport=polling&sid={sid}', headers=headers, data=data)
         return response.text
-    user_id = 'JMeyGGTY1wXV5UzlyTo9716268092706'
-    vserver_id = 's71'
-    vserver_host = f'{vserver_id}.video-converter.com'
     headers = {
-        'Host': vserver_host,
         'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Microsoft Edge";v="120"',
         'accept': '*/*',
         'content-type': 'text/plain;charset=UTF-8',
@@ -146,11 +167,20 @@ async def convert_in_server(input_file_path, event):
         'referer': 'https://video-converter.com/',
         'accept-language': 'si-LK,si;q=0.9,en-US;q=0.8,en;q=0.7',
     }
+    user_id = requests.get('https://video-converter.com/', headers=headers).cookies['uid']
+    vserver_id = 's71'
+    vserver_host = f'{vserver_id}.video-converter.com'
     sessid = get_sid()
     poll_msg(sessid, '', '40')
     async with websockets.connect(f'wss://{vserver_host}/socket.io/?EIO=4&transport=websocket&sid={sessid}') as websocket:
         await websocket.send('2probe')
-        msg = await show_upload_status(input_file_path, event, vserver_host, user_id)
+        tk = TimeKeeper()
+        res_msg = await show_upload_status(
+            input_file_path,
+            vserver_host,
+            user_id,
+            lambda c,t:prog_callback('Up',c,t,event,input_file_path,tk)
+        )
         cmd = {
             "site_id": "vconv",
             "uid": user_id,
@@ -158,11 +188,11 @@ async def convert_in_server(input_file_path, event):
             "action_type": "encode",
             "enable_transfer_proxy": False,
             "country": "LK",
-            "tmp_filename": msg['tmp_filename'],
-            "duration_in_seconds": msg['ff']['duration_in_seconds'],
+            "tmp_filename": res_msg['tmp_filename'],
+            "duration_in_seconds": res_msg['ff']['duration_in_seconds'],
             "acodec": "aac",
             "vcodec": "h265",
-            "no_audio": not msg['ff']['has_audio_streams'],
+            "no_audio": not res_msg['ff']['has_audio_streams'],
             "format_type": "video",
             "format": "mp4",
             "preset": "same",
@@ -176,7 +206,7 @@ async def convert_in_server(input_file_path, event):
         }
         start_time = time.time()
         last = 0
-        last_edit_time = start_time
+        last_edit_time = 0
         filename = os.path.basename(input_file_path)
         while 1:
             try:
@@ -187,16 +217,16 @@ async def convert_in_server(input_file_path, event):
                     await websocket.send('5')
                     await websocket.send('42'+json.dumps(["encode",cmd]))
                 if response.startswith('42'):
-                    msg = json.loads(response[2:])
-                    if msg[1]['message_type'] == 'progress':
-                        if last+2 < msg[1]['progress_value'] and last_edit_time+5 < time.time():
+                    sock_msg = json.loads(response[2:])
+                    if sock_msg[1]['message_type'] == 'progress':
+                        if last+2 < sock_msg[1]['progress_value'] and last_edit_time+5 < time.time():
                             await event.edit("**Converting**: {}\n**FileName**: {}\n**ElapsedTime**: {}".format(
-                                progress_bar(msg[1]['progress_value']), filename, seconds_to_human_time(time.time()-start_time)
+                                progress_bar(sock_msg[1]['progress_value']), filename, seconds_to_human_time(time.time()-start_time)
                             ))
-                            last = msg[1]['progress_value']
+                            last = sock_msg[1]['progress_value']
                             last_edit_time = time.time()
-                    elif msg[0]=='encode' and msg[1]['message_type'] == 'final_result':
-                        return msg[1]['download_url']
+                    elif sock_msg[0]=='encode' and sock_msg[1]['message_type'] == 'final_result':
+                        return sock_msg[1]['download_url']
             except websockets.ConnectionClosedOK as e:
                 await event.edit(repr(e))
                 break
@@ -246,7 +276,7 @@ async def get_url(session, url, event, resumable, custom_filename, download_dir)
         speedl_total = int(speeddl_info.headers.get('content-length', 0)) or None
         url = speeddl_url if total==speedl_total else url
     start_time = time.time()
-    async with session.get(url, headers=headers, verify_ssl=False) as response:
+    async with session.get(url, headers=headers) as response:
         server_filename = parse_header(response.headers.get('content-disposition', ''))[1].get('filename', None)
         total = int(response.headers.get('content-length', 0)) or None
         if custom_filename is not None:
@@ -437,7 +467,7 @@ async def make_dir_btns(event, dirname, page=1, edit=True):
         keyboard = make_pages(buttons, f'dirpage:{dirname}-', page)
     dirhash = fileNameHash(dirname)
     keyboard.append([Button.inline('upload all 📤', data=f"uploadalldir:{dirhash}")])
-    keyboard.append([Button.inline('delete this folder 🗑', data=f"delete:{dirhash}")])
+    keyboard.append([Button.inline('delete this folder 🗑', data=f"delfile:{dirhash}")])
     keyboard.append(main_keybtn)
     text = '🗂 folder: {}\n🔢 file count: {}'.format(db_get(dirname, dirname), len(all_files_n_p))
     if edit:
@@ -562,6 +592,7 @@ async def callback_handler(event):
     files = dirfiles(BASE_DIR)
     keyboard = None
     text = None
+    as_new = False
     try:
         data = event.data.decode('utf-8').split(':', 1)
         data2 = data[1].split('-')
@@ -578,8 +609,12 @@ async def callback_handler(event):
             sel_dir_filename = data2[0]
             sel_dir_filepath = os.path.join(BASE_DIR, sel_dir_filename)
         if data[0] in ('mainpage', 'delmainfilepage'):
-            if data[0].startswith('del') and os.path.isfile(sel_dir_filepath):
-                os.remove(sel_dir_filepath)
+            if data[0].startswith('del'):
+                sfile = os.path.join(BASE_DIR, dirfiles(BASE_DIR).get(data2[0]))
+                if os.path.isfile(sfile):
+                    os.remove(sfile)
+                elif os.path.isdir(sfile):
+                    shutil.rmtree(sfile)
                 data2[0] = data2[1]
             await mainPage(BASE_DIR, event, data2[0])
         elif data[0] in ('dirpage', 'deldirfilepage'):
@@ -635,6 +670,7 @@ async def callback_handler(event):
             if os.path.isdir(sel_dir_filepath):
                 shutil.rmtree(sel_dir_filepath)
                 fof = 'folder'
+                sel_dir_filename = db_get(sel_dir_filename)
             elif os.path.isfile(sel_dir_filepath):
                 os.remove(sel_dir_filepath)
             keyboard = []
@@ -643,7 +679,7 @@ async def callback_handler(event):
             await event.edit('wait..')
             thumb = gen_thumbs(sel_dir_filepath)
             await event.respond(sel_dir_filename, file=thumb)
-            await event.delete()
+            as_new = True
             keyboard = []
             text = 'thumbnail generated successfully'
         elif data[0] in ('file', 'dirfile'):
@@ -679,16 +715,19 @@ async def callback_handler(event):
                 all_files_n_p = get_tree(BASE_DIR)
             for file in all_files_n_p:
                 await upload_and_send(event, event, all_files_n_p[file][1], all_files_n_p[file][1], all_files_n_p[file][0])
+            as_new = True
             text = 'all files uploaded ✅'
         if text is None:
             return
-        elif keyboard is None:
-            await event.edit(text)
-            return
-        if 'dirfile' in data[0]:
-            keyboard.append(goto('dirpage', data2[0], '◀️ Back to {}'.format(db_get(data2[0]))))
-        keyboard.append(main_keybtn)
-        await event.edit(text, buttons=keyboard)
+        if keyboard is not None:
+            if 'dirfile' in data[0]:
+                keyboard.append(goto('dirpage', data2[0], '◀️ Back to {}'.format(db_get(data2[0]))))
+            keyboard.append(main_keybtn)
+        if as_new:
+            await event.delete()
+            await event.respond(text, buttons=keyboard)
+        else:
+            await event.edit(text, buttons=keyboard)
     except Exception as e:
         await event.respond(f"Error: {e}")
 

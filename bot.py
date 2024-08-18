@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 LOGFILE_DIR = os.path.join(os.getcwd(), 'logs')
+TEMPFILE_DIR = os.path.join(os.getcwd(), 'temp')
 CONN = sqlite3.connect('database.db')
 IS_WIN = platform.system()=='Windows'
 API_ID = int(os.getenv('API_ID'))
@@ -68,9 +69,12 @@ def check(log_file):
 async def show_ffmpeg_status(input_file_path, output_file_path, msg, codec_copy):
     if not os.path.isdir(LOGFILE_DIR):
         os.makedirs(LOGFILE_DIR)
+    if not os.path.isdir(TEMPFILE_DIR):
+        os.makedirs(TEMPFILE_DIR)
     filename = os.path.basename(input_file_path)
     logfile = os.path.join(LOGFILE_DIR, filename+fileNameHash(input_file_path)+'.log')
-    cmd = ['python' if IS_WIN else 'python3', 'converter.py', shell_quote(input_file_path), shell_quote(output_file_path), shell_quote(logfile), '1' if codec_copy else '0']
+    tmp_output_path = os.path.join(TEMPFILE_DIR, os.path.basename(output_file_path))
+    cmd = ['python' if IS_WIN else 'python3', 'converter.py', shell_quote(input_file_path), shell_quote(tmp_output_path), shell_quote(logfile), '1' if codec_copy else '0']
     if IS_WIN:
         subprocess.Popen(cmd, shell=True, stdin=None, stdout=None, stderr=None, close_fds=True)
     else:
@@ -87,6 +91,7 @@ async def show_ffmpeg_status(input_file_path, output_file_path, msg, codec_copy)
             last = status
             last_edit_time = time.time()
         await asyncio.sleep(2)
+    shutil.move(tmp_output_path, output_file_path)
 async def file_sender(file_name, callback=None):
     async with aiofiles.open(file_name, 'rb') as f:
         current = 0
@@ -249,6 +254,8 @@ def parse_header(header):
     params = [p.split('=') for p in header[1].split(';')]
     return header[0].strip(), {key[0].strip(): key[1].strip('" ') for key in params}
 async def get_url(session, url, event, resumable, custom_filename, download_dir):
+    if not os.path.isdir(TEMPFILE_DIR):
+        os.makedirs(TEMPFILE_DIR)
     current = 0
     last = 0
     last_edited_time = 0
@@ -285,7 +292,7 @@ async def get_url(session, url, event, resumable, custom_filename, download_dir)
             file_org_name = server_filename
         if len(file_org_name) > 250:
             file_org_name = hashlib.md5(file_org_name.encode()).hexdigest()
-        file_name = os.path.join(download_dir, file_org_name)
+        file_name = os.path.join(TEMPFILE_DIR, file_org_name)
         async with aiofiles.open(file_name, 'wb') as file:
             async for chunk in response.content.iter_chunked(1024):
                 await file.write(chunk)
@@ -298,8 +305,8 @@ async def get_url(session, url, event, resumable, custom_filename, download_dir)
                     last = percentage
                     last_edited_time = time.time()
     if os.path.isfile(file_name):
+        shutil.move(file_name, os.path.join(download_dir, file_org_name))
         await event.edit(f'file {file_org_name} downloaded successful!', buttons=[goto('file', file_org_name), main_keybtn])
-        return file_name
     await event.edit("Error\nSomething went wrong ..")
 async def dl_file(url, event, resumable=True, custom_filename=None, download_dir=BASE_DIR):
     async with aiohttp.ClientSession(
@@ -507,15 +514,19 @@ def gen_thumbs(fileName):
     Generator(fileName, output_path=thumb_dir, imgCount=16, columns=4).run()
     return os.path.join(thumb_dir, '{}.jpg'.format(os.path.basename(fileName).rsplit('.', 1)[0]))
 
-@bot.on(events.NewMessage())
+@bot.on(events.NewMessage(outgoing=False))
 async def check_media(event):
     if not os.path.isdir(BASE_DIR):
         os.makedirs(BASE_DIR)
+    if not os.path.isdir(TEMPFILE_DIR):
+        os.makedirs(TEMPFILE_DIR)
     if event.message.file:
         tk = TimeKeeper()
         msg = await event.respond('wait..')
-        file = await event.message.download_media(BASE_DIR, progress_callback=lambda c,t:prog_callback('Down',c,t,msg,event.message.file.name,tk))
-        await msg.edit('file download complete ✅', buttons=[goto('file', os.path.basename(file)), main_keybtn])
+        file = await event.message.download_media(TEMPFILE_DIR, progress_callback=lambda c,t:prog_callback('Down',c,t,msg,event.message.file.name,tk))
+        filename = os.path.basename(file)
+        shutil.move(file, os.path.join(BASE_DIR, filename))
+        await msg.edit('file download complete ✅', buttons=[goto('file', filename), main_keybtn])
         raise events.StopPropagation
 @bot.on(events.NewMessage(pattern='^[^/]'))
 async def check_links(event):

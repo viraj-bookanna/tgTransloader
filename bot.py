@@ -173,7 +173,7 @@ async def convert_in_server(input_file_path, event):
         'accept-language': 'si-LK,si;q=0.9,en-US;q=0.8,en;q=0.7',
     }
     user_id = requests.get('https://video-converter.com/', headers=headers).cookies['uid']
-    vserver_id = 's71'
+    vserver_id = 's54'
     vserver_host = f'{vserver_id}.video-converter.com'
     sessid = get_sid()
     poll_msg(sessid, '', '40')
@@ -307,6 +307,7 @@ async def get_url(session, url, event, resumable, custom_filename, download_dir)
     if os.path.isfile(file_name):
         shutil.move(file_name, os.path.join(download_dir, file_org_name))
         await event.edit(f'file {file_org_name} downloaded successful!', buttons=[goto('file', file_org_name), main_keybtn])
+        return
     await event.edit("Error\nSomething went wrong ..")
 async def dl_file(url, event, resumable=True, custom_filename=None, download_dir=BASE_DIR):
     async with aiohttp.ClientSession(

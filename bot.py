@@ -72,6 +72,7 @@ async def show_ffmpeg_status(input_file_path, output_file_path, msg, codec_copy)
     if not os.path.isdir(TEMPFILE_DIR):
         os.makedirs(TEMPFILE_DIR)
     filename = os.path.basename(input_file_path)
+    unug_filename = unugly_path(input_file_path)
     logfile = os.path.join(LOGFILE_DIR, filename+fileNameHash(input_file_path)+'.log')
     tmp_output_path = os.path.join(TEMPFILE_DIR, os.path.basename(output_file_path))
     cmd = ['python' if IS_WIN else 'python3', 'converter.py', shell_quote(input_file_path), shell_quote(tmp_output_path), shell_quote(logfile), '1' if codec_copy else '0']
@@ -87,7 +88,7 @@ async def show_ffmpeg_status(input_file_path, output_file_path, msg, codec_copy)
         status = check(logfile)
         if last_edit_time+5 < time.time() and last != status:
             elapsed = seconds_to_human_time(time.time()-start_time)
-            await msg.edit(f'**Filename**: {filename}\n{status}\n**Elapsed**: {elapsed}')
+            await msg.edit(f'**Filename**: {unug_filename}\n{status}\n**Elapsed**: {elapsed}')
             last = status
             last_edit_time = time.time()
         await asyncio.sleep(2)
@@ -138,7 +139,7 @@ async def show_upload_status(file_path, host, uid, callback):
         for item in form:
             part = mpwriter.append(item[1])
             part.set_content_disposition('form-data', name=item[0])
-        part = mpwriter.append(file_sender(file_path), {'content-type': 'application/octet-stream'})
+        part = mpwriter.append(file_sender(file_path, callback), {'content-type': 'application/octet-stream'})
         part.set_content_disposition('form-data', name='file', filename=filename)
         async with aiohttp.ClientSession(
             connector=aiohttp.TCPConnector(ssl=False),
@@ -370,7 +371,7 @@ class TimeKeeper:
 async def prog_callback(upordown, current, total, event, file_org_name, tk):
     percentage = round(current/total*100, 2)
     if tk.last+2 < percentage and tk.last_edited_time+5 < time.time():
-        await event.edit("{}loading {}\nFile Name: {}\nSize: {}\n{}loaded: {}".format(upordown, progress_bar(percentage), file_org_name, humanify(total), upordown, humanify(current)))
+        await event.edit("{}loading {}\nFile Name: {}\nSize: {}\n{}loaded: {}".format(upordown, progress_bar(percentage), unugly_path(file_org_name), humanify(total), upordown, humanify(current)))
         tk.last = percentage
         tk.last_edited_time = time.time()
 async def upload_and_send(event, msg, uploadFilePath, uploadFileName, caption, force_document=False):
@@ -514,6 +515,11 @@ def gen_thumbs(fileName):
         os.makedirs(thumb_dir)
     Generator(fileName, output_path=thumb_dir, imgCount=16, columns=4).run()
     return os.path.join(thumb_dir, '{}.jpg'.format(os.path.basename(fileName).rsplit('.', 1)[0]))
+def unugly_path(path):
+    dirhash = path.replace(BASE_DIR, '').strip(os.sep).split(os.sep)[0]
+    if dirhash is not None and dirhash != '':
+        return path.replace(dirhash, db_get(dirhash, dirhash))
+    return path
 
 @bot.on(events.NewMessage(outgoing=False))
 async def check_media(event):
@@ -640,7 +646,7 @@ async def callback_handler(event):
             keyboard = [
                 goto('file', sel_dir_filename),
             ]
-            text = f'file: {sel_dir_filepath} moved to main'
+            text = 'file: {} moved to main'.format(unugly_path(sel_dir_filepath))
         elif data[0] in ('filetomp4', 'dirfiletomp4'):
             keyboard = [
                 [Button.inline('Normal convert (slow)', data=f"{data[0]}c:{data[1]}")],
@@ -664,7 +670,7 @@ async def callback_handler(event):
             text = f'conversion complete!\noutput file: {sel_dir_filename}.mp4'
         elif data[0] in ('uploadfile', 'uploadfiledoc', 'uploaddirfile', 'uploaddirfiledoc'):
             await event.edit('wait..')
-            await upload_and_send(event, event, sel_dir_filepath, sel_dir_filepath, sel_dir_filename, 'doc' in data[0])
+            await upload_and_send(event, event, sel_dir_filepath, sel_dir_filepath, unugly_path(sel_dir_filename), 'doc' in data[0])
             keyboard = []
             text = f'file {sel_dir_filename} uploaded ✅'
         elif data[0] in ('renamefile', 'renamedirfile'):
@@ -676,7 +682,7 @@ async def callback_handler(event):
             text = f'file: `{sel_dir_filename}`\nuse following command to rename\n\n`/rn {data[1]} new_name`'
         elif data[0]=='extract':
             keyboard = [goto('file', sel_dir_filename, f'◀️ Back')]
-            text = f'file: `{sel_dir_filename}`\nuse following command to extract\n\n`/ex {data[1]} passwd`'
+            text = f'file: `{sel_dir_filename}`\nuse following command to extract\n\nwithout password:`/ex {data[1]}`\nwith password:`/ex {data[1]} passwd`'
         elif data[0] in ('delfile', 'deldirfile'):
             fof = 'file'
             if os.path.isdir(sel_dir_filepath):
@@ -686,7 +692,7 @@ async def callback_handler(event):
             elif os.path.isfile(sel_dir_filepath):
                 os.remove(sel_dir_filepath)
             keyboard = []
-            text = f'{fof}: {sel_dir_filename} deleted'
+            text = '{}: {} deleted'.format(fof, unugly_path(sel_dir_filepath))
         elif data[0] in ('filegenthumbs', 'dirfilegenthumbs'):
             await event.edit('wait..')
             thumb = gen_thumbs(sel_dir_filepath)
@@ -710,7 +716,7 @@ async def callback_handler(event):
             keyboard.append([Button.inline('delete ❌', data=f"del{data[0]}:{data[1]}")])
             if data[0]=='dirfile':
                 keyboard.append([Button.inline('move to main 📑', data=f"mvdirfile:{data[1]}")])
-            text = '{} file: {}\nsize: {}'.format(get_icon(sel_dir_filepath), sel_dir_filepath, humanify(os.path.getsize(sel_dir_filepath)))
+            text = '{} file: {}\nsize: {}'.format(get_icon(sel_dir_filepath), unugly_path(sel_dir_filepath), humanify(os.path.getsize(sel_dir_filepath)))
         elif data[0]=='deleteall':
             keyboard = [[Button.inline('Yes', data='deleteallyes:deleteallyes'), Button.inline('No', data='main:main')]]
             text = 'ARE YOU SURE?'
@@ -726,7 +732,7 @@ async def callback_handler(event):
             elif data[0]=='uploadallsubdirs':
                 all_files_n_p = get_tree(BASE_DIR)
             for file in all_files_n_p:
-                await upload_and_send(event, event, all_files_n_p[file][1], all_files_n_p[file][1], all_files_n_p[file][0])
+                await upload_and_send(event, event, all_files_n_p[file][1], all_files_n_p[file][1], unugly_path(all_files_n_p[file][0]))
             as_new = True
             text = 'all files uploaded ✅'
         if text is None:

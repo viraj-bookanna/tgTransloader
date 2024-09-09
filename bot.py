@@ -20,7 +20,7 @@ API_ID = int(os.getenv('API_ID'))
 API_HASH = os.getenv('API_HASH')
 STRING_SESSION = os.getenv('STRING_SESSION')
 BASE_DIR = os.getenv('BASE_DIR')
-DOWNLOAD_TIMEOUT_MINUTES = int(os.getenv('DOWNLOAD_TIMEOUT_MINUTES', '30'))
+DOWNLOAD_TIMEOUT_MINUTES = int(os.getenv('DOWNLOAD_TIMEOUT_MINUTES', '60'))
 
 bot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 
@@ -159,6 +159,16 @@ async def convert_in_server(input_file_path, event):
         data = prefix+sockmsg
         response = requests.post(f'https://{vserver_host}/socket.io/?EIO=4&transport=polling&sid={sid}', headers=headers, data=data)
         return response.text
+    async def ws_keep_alive(websocket):
+        while not uploading_complete:
+            try:
+                response = await websocket.recv()
+                if response == '2':
+                    await websocket.send('3')
+                elif response == '3probe':
+                    await websocket.send('5')
+            except websockets.ConnectionClosedOK as e:
+                break
     headers = {
         'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Microsoft Edge";v="120"',
         'accept': '*/*',
@@ -178,8 +188,10 @@ async def convert_in_server(input_file_path, event):
     vserver_host = f'{vserver_id}.video-converter.com'
     sessid = get_sid()
     poll_msg(sessid, '', '40')
+    uploading_complete = False
     async with websockets.connect(f'wss://{vserver_host}/socket.io/?EIO=4&transport=websocket&sid={sessid}') as websocket:
         await websocket.send('2probe')
+        keepalive_task = asyncio.create_task(ws_keep_alive(websocket))
         tk = TimeKeeper()
         res_msg = await show_upload_status(
             input_file_path,
@@ -187,6 +199,8 @@ async def convert_in_server(input_file_path, event):
             user_id,
             lambda c,t:prog_callback('Up',c,t,event,input_file_path,tk)
         )
+        uploading_complete = True
+        await asyncio.gather(keepalive_task)
         cmd = {
             "site_id": "vconv",
             "uid": user_id,
@@ -214,6 +228,7 @@ async def convert_in_server(input_file_path, event):
         last = 0
         last_edit_time = 0
         filename = os.path.basename(input_file_path)
+        await websocket.send('42'+json.dumps(["encode",cmd]))
         while 1:
             try:
                 response = await websocket.recv()
@@ -221,7 +236,6 @@ async def convert_in_server(input_file_path, event):
                     await websocket.send('3')
                 elif response == '3probe':
                     await websocket.send('5')
-                    await websocket.send('42'+json.dumps(["encode",cmd]))
                 if response.startswith('42'):
                     sock_msg = json.loads(response[2:])
                     if sock_msg[1]['message_type'] == 'progress':
@@ -375,14 +389,18 @@ async def prog_callback(upordown, current, total, event, file_org_name, tk):
         tk.last = percentage
         tk.last_edited_time = time.time()
 async def upload_and_send(event, msg, uploadFilePath, uploadFileName, caption, force_document=False):
+    if not os.path.isdir(TEMPFILE_DIR):
+        os.makedirs(TEMPFILE_DIR)
     tk = TimeKeeper()
     file = await bot.upload_file(
         uploadFilePath,
         progress_callback=lambda c,t:prog_callback('Up',c,t,msg,uploadFileName,tk),
     )
+    thumbpath = ''
     try:
         if is_video(uploadFilePath):
-            generate_thumbnail(uploadFilePath, f'{uploadFilePath}.jpg')
+            thumbpath = os.path.join(TEMPFILE_DIR, os.path.basename(uploadFilePath)+'.jpg')
+            generate_thumbnail(uploadFilePath, thumbpath)
     except Exception as e:
         print(repr(e))
     if force_document:
@@ -397,13 +415,13 @@ async def upload_and_send(event, msg, uploadFilePath, uploadFileName, caption, f
         await bot.send_file(
             event.chat,
             file=file,
-            thumb=f'{uploadFilePath}.jpg' if os.path.isfile(f'{uploadFilePath}.jpg') else None,
+            thumb=thumbpath if os.path.isfile(thumbpath) else None,
             caption=caption,
             supports_streaming=True,
             link_preview=False
         )
-    if os.path.isfile(f'{uploadFilePath}.jpg'):
-        os.unlink(f'{uploadFilePath}.jpg')
+    if os.path.isfile(thumbpath):
+        os.unlink(thumbpath)
 def fileNameHash(fileName):
     return hashlib.md5(fileName.encode()).hexdigest()[:16]
 def gen_hash_list(list_or_dict):
@@ -705,7 +723,7 @@ async def callback_handler(event):
                 [Button.inline('Upload 📤', data=f"upload{data[0]}:{data[1]}")],
             ]
             if is_video(sel_dir_filepath, False):
-                if sel_dir_filepath.lower().endswith('.mp4'):
+                if sel_dir_filepath.lower().endswith(('.mp4', '.mkv')):
                     keyboard.append([Button.inline('Generate thumbnails 🎩', data=f"{data[0]}genthumbs:{data[1]}")])
                 else:
                     keyboard.append([Button.inline('Convert to .mp4 ♻️', data=f"{data[0]}tomp4:{data[1]}")])

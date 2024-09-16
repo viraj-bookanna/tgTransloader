@@ -61,7 +61,7 @@ def check(log_file):
         time_matches = re.findall(r"time=(.*?) bitrate", content)
         raw_time = time_matches[-1]
         fraction = human_time_to_seconds(raw_time) / human_time_to_seconds(raw_duration)
-        progress = progress_bar(round(fraction * 100, 2))
+        progress = progress_bar(fraction*100)
         status = f"**Converting**: {progress}\n**Duration**: {raw_duration}\n**CurrentTime**: {raw_time}"
         return status
     except Exception as e:
@@ -156,7 +156,7 @@ async def get_url(session, url, event, resumable, custom_filename, download_dir)
             async for chunk in response.content.iter_chunked(1024):
                 await file.write(chunk)
                 current += len(chunk)
-                percentage = 0 if total is None else round(current/total*100, 2)
+                percentage = 0 if total is None else current/total*100
                 if last+2 < percentage and last_edited_time+5 < time.time():
                     await event.edit("**Downloading**: {}\n**File Name**: {}\n**Size**: {}\n**Downloaded**: {}\n**Elapsed Time**: {}".format(
                         progress_bar(percentage), file_org_name, humanify(total), humanify(current), seconds_to_human_time(time.time()-start_time))
@@ -222,23 +222,23 @@ def progress_bar(percentage):
     progressbar_length = 10
     prefix = round(percentage/progressbar_length) * prefix_char
     suffix = (progressbar_length-round(percentage/progressbar_length)) * suffix_char
-    return "{}{} {}%".format(prefix, suffix, percentage)
+    return f"{prefix}{suffix} {percentage:.2f}%"
 class TimeKeeper:
     last_percentage = 0
     last_edited_time = 0
-async def prog_callback(desc, current, total, event, file_org_name, tk):
-    percentage = round(current/total*100, 2)
+async def prog_callback(desc, current, total, event, file_org_name, tk, title=''):
+    percentage = current/total*100
     if tk.last_percentage+2 < percentage and tk.last_edited_time+5 < time.time():
-        await event.edit("**{}ing**: {}\n**File Name**: {}\n**Size**: {}\n**{}ed**: {}".format(desc, progress_bar(percentage), unugly_path(file_org_name), humanify(total), desc, humanify(current)))
+        await event.edit("{}\n**{}ing**: {}\n**File Name**: {}\n**Size**: {}\n**{}ed**: {}".format(title, desc, progress_bar(percentage), unugly_path(file_org_name), humanify(total), desc, humanify(current)))
         tk.last_percentage = percentage
         tk.last_edited_time = time.time()
-async def upload_and_send(event, msg, uploadFilePath, uploadFileName, caption, force_document=False):
+async def upload_and_send(event, msg, uploadFilePath, uploadFileName, caption, force_document=False, title=''):
     if not os.path.isdir(TEMPFILE_DIR):
         os.makedirs(TEMPFILE_DIR)
     tk = TimeKeeper()
     file = await bot.upload_file(
         uploadFilePath,
-        progress_callback=lambda c,t:prog_callback('Upload',c,t,msg,uploadFileName,tk),
+        progress_callback=lambda c,t:prog_callback('Upload',c,t,msg,uploadFileName,tk,title),
     )
     thumbpath = ''
     try:
@@ -362,7 +362,7 @@ def get_icon(fullPath):
         return '🗄'
     elif 'video/' in mime_type and fullPath.lower().endswith(('.mp4', '.mkv')):
         return '🎞▶️'
-    elif 'video/' in mime_type:
+    elif 'video/' in mime_type or fullPath.lower().endswith(('.3gp')):
         return '🎞'
     elif 'audio/' in mime_type:
         return '🎧'
@@ -599,8 +599,12 @@ async def callback_handler(event):
                 all_files_n_p = get_tree(sel_dir_filepath)
             elif data[0]=='uploadallsubdirs':
                 all_files_n_p = get_tree(BASE_DIR)
+            total = len(all_files_n_p)
+            current = 0
             for file in all_files_n_p:
-                await upload_and_send(event, event, all_files_n_p[file][1], all_files_n_p[file][1], unugly_path(all_files_n_p[file][0]))
+                current += 1
+                pbar_total = '**Total**: '+progress_bar(current/total*100)
+                await upload_and_send(event, event, all_files_n_p[file][1], all_files_n_p[file][1], unugly_path(all_files_n_p[file][0]), False, pbar_total)
             as_new = True
             text = 'all files uploaded ✅'
         if text is None:

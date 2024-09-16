@@ -614,7 +614,7 @@ async def callback_handler(event):
             await event.respond(text, buttons=keyboard)
         else:
             await event.edit(text, buttons=keyboard)
-    except KeyboardInterrupt as e:
+    except Exception as e:
         await event.respond(f"Error: {e}")
 
 main_keybtn = [Button.inline('🔙 Back to files', data="mainpage:1")]

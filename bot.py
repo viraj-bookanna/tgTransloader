@@ -1,4 +1,4 @@
-import zipfile,rarfile,py7zr,os,time,hashlib,urllib.parse,aiohttp,aiofiles,shutil,multivolumefile,re,platform,shlex,asyncio,subprocess,mimetypes,sqlite3,requests,json
+import zipfile,rarfile,py7zr,os,time,hashlib,urllib.parse,aiohttp,aiofiles,shutil,multivolumefile,re,platform,shlex,asyncio,subprocess,mimetypes,sqlite3,json
 from telethon import TelegramClient, events, Button
 from telethon.sessions import StringSession
 from telethon.tl.types import MessageEntityUrl
@@ -118,6 +118,8 @@ async def get_url(session, url, event, resumable, custom_filename, download_dir)
     current = 0
     last = 0
     last_edited_time = 0
+    if re.match(r'https?://(www\.)?upload\.ee', url):
+        url = BeautifulSoup(await session.get(url).text(), 'html.parser').find('a', attrs={'id':'d_l'})['href']
     parsed_url = urllib.parse.urlparse(url)
     file_org_name = os.path.basename(parsed_url.path)
     file_name = ""

@@ -10,6 +10,7 @@ from datetime import datetime
 from thumb_gen import Generator
 from dotenv import load_dotenv
 from util.VConvert import ServerConverter
+from bs4 import BeautifulSoup
 
 load_dotenv(override=True)
 
@@ -119,7 +120,7 @@ async def get_url(session, url, event, resumable, custom_filename, download_dir)
     last = 0
     last_edited_time = 0
     if re.match(r'https?://(www\.)?upload\.ee', url):
-        url = BeautifulSoup(await session.get(url).text(), 'html.parser').find('a', attrs={'id':'d_l'})['href']
+        url = BeautifulSoup(await (await session.get(url)).text(), 'html.parser').find('a', attrs={'id':'d_l'})['href']
     parsed_url = urllib.parse.urlparse(url)
     file_org_name = os.path.basename(parsed_url.path)
     file_name = ""

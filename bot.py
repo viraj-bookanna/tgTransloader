@@ -123,6 +123,8 @@ async def get_url(session, url, event, resumable, custom_filename, download_dir)
         url = BeautifulSoup(await (await session.get(url)).text(), 'html.parser').find('a', attrs={'id':'d_l'})['href']
     parsed_url = urllib.parse.urlparse(url)
     file_org_name = os.path.basename(parsed_url.path)
+    if file_org_name == '':
+        file_org_name = hashlib.md5(url.encode()).hexdigest()
     file_name = ""
     headers = {
         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',

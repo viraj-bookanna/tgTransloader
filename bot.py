@@ -18,13 +18,10 @@ LOGFILE_DIR = os.path.join(os.getcwd(), 'logs')
 TEMPFILE_DIR = os.path.join(os.getcwd(), 'temp')
 CONN = sqlite3.connect('database.db')
 IS_WIN = platform.system()=='Windows'
-API_ID = int(os.getenv('API_ID'))
-API_HASH = os.getenv('API_HASH')
-STRING_SESSION = os.getenv('STRING_SESSION')
 BASE_DIR = os.getenv('BASE_DIR')
 DOWNLOAD_TIMEOUT_MINUTES = int(os.getenv('DOWNLOAD_TIMEOUT_MINUTES', '60'))
 
-bot = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
+bot = TelegramClient('bot', os.environ['API_ID'], os.environ['API_HASH']).start(bot_token=os.environ['BOT_TOKEN'])
 
 def db_get(key, default=None):
     try:

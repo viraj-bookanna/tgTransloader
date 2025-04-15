@@ -119,7 +119,7 @@ async def get_url(session, url, event, resumable, custom_filename, download_dir)
     if re.match(r'https?://(www\.)?upload\.ee', url):
         url = BeautifulSoup(await (await session.get(url)).text(), 'html.parser').find('a', attrs={'id':'d_l'})['href']
     parsed_url = urllib.parse.urlparse(url)
-    file_org_name = os.path.basename(parsed_url.path)
+    file_org_name = urllib.parse.unquote(os.path.basename(parsed_url.path))
     if file_org_name == '':
         file_org_name = hashlib.md5(url.encode()).hexdigest()
     file_name = ""

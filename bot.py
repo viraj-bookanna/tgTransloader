@@ -218,12 +218,12 @@ def humanify(byte_size):
     for i in range(len(siz_list)):
         if byte_size/1024**(i+1) < 1024:
             return "{} {}".format(round(byte_size/1024**(i+1), 2), siz_list[i])
-def progress_bar(percentage):
+def progress_bar(percentage, progressbar_length=10):
     prefix_char = '█'
     suffix_char = '▒'
-    progressbar_length = 10
-    prefix = round(percentage/progressbar_length) * prefix_char
-    suffix = (progressbar_length-round(percentage/progressbar_length)) * suffix_char
+    fill = round(progressbar_length*percentage/100)
+    prefix = fill * prefix_char
+    suffix = (progressbar_length-fill) * suffix_char
     return f"{prefix}{suffix} {percentage:.2f}%"
 class TimeKeeper:
     last_percentage = 0

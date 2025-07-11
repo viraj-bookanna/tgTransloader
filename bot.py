@@ -191,7 +191,7 @@ def extract_file(inputFile, outputFolder, password=None):
     if inputFile.lower().endswith('.zip'):
         with zipfile.ZipFile(inputFile, 'r') as zip_ref:
             if password is not None:
-                zip_ref.setpassword(password)
+                zip_ref.setpassword(password.encode('utf-8'))
             zip_ref.extractall(outputFolder)
     elif inputFile.lower().endswith('.rar'):
         with rarfile.RarFile(inputFile, 'r') as rar_ref:

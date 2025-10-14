@@ -430,7 +430,7 @@ async def extract_files(event):
             await msg.edit('destination already exists', buttons=[goto('dirpage', cmd[1], 'switch to folder 🔁'), main_keybtn])
             return
         os.makedirs(expath)
-        extract_file(sel_file_path, expath, None if len(cmd)==2 else cmd[2])
+        await asyncio.to_thread(extract_file, sel_file_path, expath, None if len(cmd)==2 else cmd[2])
         await make_dir_btns(event, cmd[1], 1, False)
         await msg.delete()
     except Exception as e:
@@ -496,7 +496,7 @@ async def callback_handler(event):
                 if os.path.isfile(sfile):
                     os.remove(sfile)
                 elif os.path.isdir(sfile):
-                    shutil.rmtree(sfile)
+                    await asyncio.to_thread(shutil.rmtree, sfile)
                 data2[0] = data2[1]
             await mainPage(BASE_DIR, event, data2[0])
         elif data[0] in ('dirpage', 'deldirfilepage'):
@@ -556,7 +556,7 @@ async def callback_handler(event):
         elif data[0] in ('delfile', 'deldirfile'):
             fof = 'file'
             if os.path.isdir(sel_dir_filepath):
-                shutil.rmtree(sel_dir_filepath)
+                await asyncio.to_thread(shutil.rmtree, sel_dir_filepath)
                 fof = 'folder'
                 sel_dir_filename = db_get(sel_dir_filename)
             elif os.path.isfile(sel_dir_filepath):
@@ -565,7 +565,7 @@ async def callback_handler(event):
             text = '{}: {} deleted'.format(fof, unugly_path(sel_dir_filepath))
         elif data[0] in ('filegenthumbs', 'dirfilegenthumbs'):
             await event.edit('wait..')
-            thumb = gen_thumbs(sel_dir_filepath)
+            thumb = await asyncio.to_thread(gen_thumbs, sel_dir_filepath)
             await event.respond(sel_dir_filename, file=thumb)
             as_new = True
             keyboard = []
@@ -591,7 +591,7 @@ async def callback_handler(event):
             keyboard = [[Button.inline('Yes', data='deleteallyes:deleteallyes'), Button.inline('No', data='main:main')]]
             text = 'ARE YOU SURE?'
         elif data[0]=='deleteallyes':
-            shutil.rmtree(BASE_DIR)
+            await asyncio.to_thread(shutil.rmtree, BASE_DIR)
             text = 'ALL FILES DELETED !'
         elif 'uploadall' in data[0]:
             await event.edit('wait..')

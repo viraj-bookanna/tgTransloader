@@ -2,7 +2,6 @@ import zipfile,rarfile,py7zr,os,time,hashlib,urllib.parse,aiohttp,aiofiles,shuti
 from telethon import TelegramClient, events, Button
 from telethon.sessions import StringSession
 from telethon.tl.types import MessageEntityUrl
-from moviepy.video.io.VideoFileClip import VideoFileClip
 from PIL import Image
 from hachoir.parser import createParser
 from hachoir.metadata import extractMetadata
@@ -20,6 +19,7 @@ CONN = sqlite3.connect('database.db')
 IS_WIN = platform.system()=='Windows'
 BASE_DIR = os.getenv('BASE_DIR')
 DOWNLOAD_TIMEOUT_MINUTES = int(os.getenv('DOWNLOAD_TIMEOUT_MINUTES', '60'))
+FFMPEG_PATH = os.getenv('FFMPEG_PATH', 'ffmpeg')
 
 bot = TelegramClient('bot', os.environ['API_ID'], os.environ['API_HASH']).start(bot_token=os.environ['BOT_TOKEN'])
 
@@ -207,12 +207,20 @@ def extract_file(inputFile, outputFolder, password=None):
                 seven_zip_ref.extractall(outputFolder)
     else:
         raise Exception("Unknown file format")
-def generate_thumbnail(video_path, thumbnail_path, time_sec=0.5):
-    clip = VideoFileClip(video_path)
-    frame = clip.get_frame(time_sec)
-    clip.close()
-    thumbnail = Image.fromarray(frame)
-    thumbnail.save(thumbnail_path)
+def generate_thumbnail(video_path, thumbnail_path, time_sec=1):
+    subprocess.run(
+        [
+            FFMPEG_PATH,
+            "-ss", seconds_to_human_time(time_sec),
+            "-i", video_path,
+            "-vframes", "1",
+            "-y",
+            thumbnail_path
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True
+    )
 def humanify(byte_size):
     siz_list = ['KB', 'MB', 'GB']
     for i in range(len(siz_list)):

@@ -13,3 +13,4 @@ thumb-gen
 python-dotenv
 mslex
 websockets
+bs4

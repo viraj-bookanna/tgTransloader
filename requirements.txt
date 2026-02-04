@@ -5,7 +5,6 @@ hachoir
 pysocks
 rarfile
 py7zr
-moviepy
 aiohttp
 aiofiles
 multivolumefile

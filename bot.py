@@ -20,8 +20,11 @@ IS_WIN = platform.system()=='Windows'
 BASE_DIR = os.getenv('BASE_DIR')
 DOWNLOAD_TIMEOUT_MINUTES = int(os.getenv('DOWNLOAD_TIMEOUT_MINUTES', '60'))
 FFMPEG_PATH = os.getenv('FFMPEG_PATH', 'ffmpeg')
+UNRAR_PATH = os.getenv('UNRAR_PATH', '')
 
 bot = TelegramClient('bot', os.environ['API_ID'], os.environ['API_HASH']).start(bot_token=os.environ['BOT_TOKEN'])
+if UNRAR_PATH!='':
+    rarfile.UNRAR_TOOL = UNRAR_PATH
 
 def db_get(key, default=None):
     try:

@@ -24,6 +24,55 @@ def is_video(file_path: str, use_hachoir: bool = True) -> bool:
     return False
 
 
+def _hachoir_metadata(file_path: str):
+    try:
+        parser = createParser(file_path)
+    except Exception:
+        return None
+    if parser is None:
+        return None
+    try:
+        return extractMetadata(parser)
+    except Exception:
+        return None
+
+
+def _safe_get(metadata, key, cast=int, default=0):
+    try:
+        if metadata.has(key):
+            value = metadata.get(key)
+            if hasattr(value, "total_seconds"):
+                return int(value.total_seconds())
+            return cast(value)
+    except Exception:
+        pass
+    return default
+
+
+def probe_video(file_path: str) -> dict | None:
+    """Return ``{duration, width, height}`` for videos; None otherwise."""
+    metadata = _hachoir_metadata(file_path)
+    if metadata is None or "MIME type: video" not in str(metadata):
+        return None
+    return {
+        "duration": _safe_get(metadata, "duration"),
+        "width": _safe_get(metadata, "width"),
+        "height": _safe_get(metadata, "height"),
+    }
+
+
+def probe_audio(file_path: str) -> dict | None:
+    """Return ``{duration, title, performer}`` for audio; None otherwise."""
+    metadata = _hachoir_metadata(file_path)
+    if metadata is None or "MIME type: audio" not in str(metadata):
+        return None
+    return {
+        "duration": _safe_get(metadata, "duration"),
+        "title": _safe_get(metadata, "title", cast=str, default=""),
+        "performer": _safe_get(metadata, "author", cast=str, default=""),
+    }
+
+
 class ThumbnailGenerator:
     """Wraps ffmpeg + thumb-gen for single-frame and composite thumbnails."""
 

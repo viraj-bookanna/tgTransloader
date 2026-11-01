@@ -48,8 +48,8 @@ def humanify(byte_size: float | None) -> str:
 
 
 def progress_bar(percentage: float, length: int = 10) -> str:
-    fill_char = "#"
-    empty_char = "."
+    fill_char = "\u2588"
+    empty_char = "\u2592"
     fill = round(length * percentage / 100)
     return f"{fill_char * fill}{empty_char * (length - fill)} {percentage:.2f}%"
 

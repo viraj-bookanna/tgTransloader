@@ -168,3 +168,6 @@ files/
 
 # database file
 database.db
+
+# uv
+.venv/

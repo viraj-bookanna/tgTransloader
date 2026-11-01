@@ -139,5 +139,5 @@ class ServerConverter:
                         elif sock_msg[0]=='encode' and sock_msg[1]['message_type'] == 'final_result':
                             return sock_msg[1]['download_url']
                 except websockets.ConnectionClosedOK as e:
-                    await event.edit(repr(e))
+                    print(repr(e))
                     break

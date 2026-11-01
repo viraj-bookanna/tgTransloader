@@ -4,9 +4,12 @@ import os
 
 from telethon import TelegramClient
 
+from tgtransloader import fasttelethon
 from tgtransloader.config import Config
 from tgtransloader.media import ThumbnailGenerator, is_video
 from tgtransloader.utils import TimeKeeper, humanify, progress_bar
+
+FAST_TRANSFER_THRESHOLD = 10 * 1024 * 1024
 
 
 class Uploader:
@@ -29,21 +32,30 @@ class Uploader:
     ) -> None:
         os.makedirs(self.config.temp_dir, exist_ok=True)
         tk = TimeKeeper()
+        file_size = os.path.getsize(upload_file_path)
+        use_fast = file_size > FAST_TRANSFER_THRESHOLD
+        label = "Uploading (fast)" if use_fast else "Uploading"
 
         async def on_progress(current, total):
             if total:
                 pct = current / total * 100
                 if tk.should_edit(pct):
                     await msg.edit(
-                        f"{title}\n**Uploading**: {progress_bar(pct)}\n"
+                        f"{title}\n**{label}**: {progress_bar(pct)}\n"
                         f"**File Name**: {upload_file_name}\n"
                         f"**Size**: {humanify(total)}\n"
                         f"**Uploaded**: {humanify(current)}"
                     )
 
-        file = await self.bot.upload_file(
-            upload_file_path, progress_callback=on_progress
-        )
+        if use_fast:
+            with open(upload_file_path, "rb") as fh:
+                file = await fasttelethon.upload_file(
+                    self.bot, fh, progress_callback=on_progress
+                )
+        else:
+            file = await self.bot.upload_file(
+                upload_file_path, progress_callback=on_progress
+            )
 
         thumb_path = ""
         try:

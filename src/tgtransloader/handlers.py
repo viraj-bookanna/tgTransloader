@@ -8,8 +8,10 @@ from typing import TYPE_CHECKING
 
 from telethon import Button, events
 
+from tgtransloader import fasttelethon
 from tgtransloader.media import is_video
 from tgtransloader.ui import MAIN_KEYBTN, find_all_urls, goto
+from tgtransloader.uploader import FAST_TRANSFER_THRESHOLD
 from tgtransloader.utils import (
     TimeKeeper,
     dir_files,
@@ -63,21 +65,33 @@ class Handlers:
         tk = TimeKeeper()
         msg = await event.respond("wait..")
         fname = event.message.file.name or "file"
+        file_size = event.message.file.size or 0
+        document = getattr(event.message, "document", None)
+        use_fast = document is not None and file_size > FAST_TRANSFER_THRESHOLD
+        label = "Downloading (fast)" if use_fast else "Downloading"
 
         async def on_progress(current, total):
             if total:
                 pct = current / total * 100
                 if tk.should_edit(pct):
                     await msg.edit(
-                        f"**Downloading**: {progress_bar(pct)}\n"
+                        f"**{label}**: {progress_bar(pct)}\n"
                         f"**File Name**: {fname}\n"
                         f"**Size**: {humanify(total)}\n"
                         f"**Downloaded**: {humanify(current)}"
                     )
 
-        file = await event.message.download_media(
-            str(self.app.config.temp_dir), progress_callback=on_progress
-        )
+        if use_fast:
+            dest = os.path.join(str(self.app.config.temp_dir), fname)
+            with open(dest, "wb") as out:
+                await fasttelethon.download_file(
+                    self.app.bot, document, out, progress_callback=on_progress
+                )
+            file = dest
+        else:
+            file = await event.message.download_media(
+                str(self.app.config.temp_dir), progress_callback=on_progress
+            )
         filename = os.path.basename(file)
         shutil.move(file, os.path.join(str(self.base_dir), filename))
         await msg.edit(
